@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.4](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.3...v0.0.4) (2025-09-18)
+
+
+### Features
+
+* add useSchemaForm hook and FormBuilder component for schema-driven forms ([6941b85](https://github.com/mguleryuz/tanstack-effect/commit/6941b85d1f8b0eda499b89f6150d84e13875e534))
+
 ### [0.0.3](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.2...v0.0.3) (2025-09-18)
 
 ### Features
