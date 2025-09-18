@@ -1,13 +1,13 @@
+import type { UseQueryOptions } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
+
+import { apiEffectRunner } from '../runner'
 import type {
   ApiCallOptions,
   GetCleanSuccessType,
   GetRequestParams,
   TTanstackEffectClient,
-} from '@/types'
-import type { UseQueryOptions } from '@tanstack/react-query'
-import { useQuery } from '@tanstack/react-query'
-
-import { apiEffectRunner } from '../runner'
+} from '../types'
 import { EffectHttpError } from './error'
 
 /**

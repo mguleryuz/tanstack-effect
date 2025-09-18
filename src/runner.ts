@@ -1,13 +1,13 @@
+import { FetchHttpClient } from '@effect/platform'
+import { Effect, Layer } from 'effect'
+
+import { EffectHttpError } from './client/error'
 import type {
   GetRequestParams,
   GetReturnType,
   PromiseSuccess,
   TTanstackEffectClient,
-} from '@/types'
-import { FetchHttpClient } from '@effect/platform'
-import { Effect, Layer } from 'effect'
-
-import { EffectHttpError } from './client/error'
+} from './types'
 
 let ApiClient: any
 

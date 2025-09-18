@@ -1,13 +1,13 @@
+import type { UseMutationOptions } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
+
+import { apiEffectRunner } from '../runner'
 import type {
   ApiCallOptions,
   GetCleanSuccessType,
   GetRequestParams,
   TTanstackEffectClient,
-} from '@/types'
-import type { UseMutationOptions } from '@tanstack/react-query'
-import { useMutation } from '@tanstack/react-query'
-
-import { apiEffectRunner } from '../runner'
+} from '../types'
 import type { EffectHttpError } from './error'
 
 /**
