@@ -37,7 +37,38 @@ bun upgrade
 
 The library is designed for a typed server-client workflow using Effect's `HttpApi`.
 
-1. Define your API on the server and generate the client type
+1. Use the client-safe hooks on the frontend
+
+```tsx
+// example/client.tsx
+import { useEffectQuery } from 'tanstack-effect/client'
+
+export default function Page() {
+  const user = useEffectQuery(
+    'user', // group key
+    'user', // endpoint key
+    { path: { username: 'test' } },
+    { includeCredentials: true, noCache: false }
+  )
+
+  return (
+    <div>
+      <h1>User</h1>
+      <p>{user.data?.username}</p>
+    </div>
+  )
+}
+```
+
+Available client hooks:
+
+- `useEffectQuery`
+- `useEffectInfiniteQuery`
+- `useEffectMutation`
+
+Import them from `tanstack-effect/client`. The main entry `tanstack-effect` is server-safe and used to build the typed client from your `HttpApi` definition.
+
+2. Define your API on the server and generate the client type
 
 ```ts
 // example/server.ts
@@ -85,7 +116,7 @@ export class TanstackEffectClient extends getTanstackEffectClient(Api) {}
 export type TTanstackEffectClient = TanstackEffectClient['client']
 ```
 
-2. Augment the `tanstack-effect` client interface in a `.d.ts`
+3. Augment the `tanstack-effect` client interface in a `.d.ts`
 
 Place a declaration file accessible to your app (e.g. `src/types/tanstack-effect.d.ts`) and ensure your `tsconfig.json` includes it.
 
@@ -97,37 +128,6 @@ declare module 'tanstack-effect' {
   interface TTanstackEffectClient extends Client {}
 }
 ```
-
-3. Use the client-safe hooks on the frontend
-
-```tsx
-// example/client.tsx
-import { useEffectQuery } from 'tanstack-effect/client'
-
-export default function Page() {
-  const user = useEffectQuery(
-    'user', // group key
-    'user', // endpoint key
-    { path: { username: 'test' } },
-    { includeCredentials: true, noCache: false }
-  )
-
-  return (
-    <div>
-      <h1>User</h1>
-      <p>{user.data?.username}</p>
-    </div>
-  )
-}
-```
-
-Available client hooks:
-
-- `useEffectQuery`
-- `useEffectInfiniteQuery`
-- `useEffectMutation`
-
-Import them from `tanstack-effect/client`. The main entry `tanstack-effect` is server-safe and used to build the typed client from your `HttpApi` definition.
 
 ## Developing
 
