@@ -3,7 +3,7 @@ set -eu
 
 # Only consider these placeholders, in this exact order
 # Note: <div align="center"> is not a placeholder and is excluded
-PLACEHOLDERS_LIST='"<x_username>" "<brand_name>" "<github_username>" "<pkg_description>" "<pkg_name>"'
+PLACEHOLDERS_LIST='"mgguleryuz" "MG" "mguleryuz" "React + Tanstack Query + Effect Fullstack e2e queries with validation" "tanstack-effect"'
 
 # Helper to search for placeholder with find+grep (BSD-compatible)
 has_placeholder() {
@@ -23,7 +23,7 @@ has_placeholder() {
 
 # Check if any of the specified placeholders exist
 FOUND_ANY=0
-for PH in "<x_username>" "<brand_name>" "<github_username>" "<pkg_description>" "<pkg_name>"; do
+for PH in "mgguleryuz" "MG" "mguleryuz" "React + Tanstack Query + Effect Fullstack e2e queries with validation" "tanstack-effect"; do
   if has_placeholder "$PH"; then
     FOUND_ANY=1
     break
@@ -36,7 +36,7 @@ if [ "$FOUND_ANY" -eq 0 ]; then
 fi
 
 echo "Detected placeholders to fill (present in project):"
-for PH in "<x_username>" "<brand_name>" "<github_username>" "<pkg_description>" "<pkg_name>"; do
+for PH in "mgguleryuz" "MG" "mguleryuz" "React + Tanstack Query + Effect Fullstack e2e queries with validation" "tanstack-effect"; do
   if has_placeholder "$PH"; then
     echo "  $PH"
   fi
@@ -44,7 +44,7 @@ done
 echo
 
 # Prompt and replace one by one, only if placeholder exists
-for PH in "<x_username>" "<brand_name>" "<github_username>" "<pkg_description>" "<pkg_name>"; do
+for PH in "mgguleryuz" "MG" "mguleryuz" "React + Tanstack Query + Effect Fullstack e2e queries with validation" "tanstack-effect"; do
   if ! has_placeholder "$PH"; then
     continue
   fi

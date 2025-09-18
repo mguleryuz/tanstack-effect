@@ -1,6 +1,6 @@
 {
-  "name": "<pkg_name>",
-  "description": "<pkg_description>",
+  "name": "tanstack-effect",
+  "description": "React + Tanstack Query + Effect Fullstack e2e queries with validation",
   "version": "0.0.0",
   "license": "Apache-2.0",
   "sideEffects": false,
@@ -74,10 +74,10 @@
     "tsc-files": "^1.1.4",
     "typescript-eslint": "^8.44.0"
   },
-  "homepage": "https://github.com/<github_username>/<pkg_name>",
-  "repository": "<github_username>/<pkg_name>",
+  "homepage": "https://github.com/mguleryuz/tanstack-effect",
+  "repository": "mguleryuz/tanstack-effect",
   "authors": [
-    "<github_username>"
+    "mguleryuz"
   ],
   "keywords": [
     "npm",
