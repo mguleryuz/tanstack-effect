@@ -1,0 +1,178 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+# Agent Rules and Guidelines
+
+## Project Overview
+
+This is a TypeScript npm package that includes library code and React hooks.
+
+The main entry `src/index.ts` exports APIs that work in both server and client environments. A separate client entry `src/client/index.ts` contains only client-compatible exports.
+
+- **Runtime**: Bun (for development and testing)
+- **Package Manager**: Bun
+- **Outputs**: CJS, ESM, and type declarations
+
+## Project Structure
+
+```
+/
+├── dist/
+│   ├── cjs/
+│   ├── esm/
+│   └── types/
+├── script/
+│   ├── fill-placeholders.sh
+│   ├── index.ts
+│   ├── read-path.ts
+│   └── write-log.ts
+├── src/
+│   ├── index.ts           # Main entry: exports server + client compatible APIs
+│   └── client/
+│       └── index.ts       # Client-only entry: client-safe exports only
+├── test/
+│   └── hello.test.ts      # Bun tests
+├── .cursor/
+│   └── rules/
+│       └── base.mdc
+├── .husky/
+│   ├── pre-commit
+│   └── pre-push
+├── bunfig.toml
+├── CHANGELOG.md
+├── commitlint.config.mjs
+├── eslint.config.mjs
+├── LICENSE.md
+├── package.json
+├── README.md
+├── tsconfig.json
+├── tsconfig.cjs.json
+├── tsconfig.esm.json
+└── tsconfig.types.json
+```
+
+## Development Workflow
+
+### Important Rules
+
+- **Never** commit without asking for permission
+- **Always** ask before making architectural decisions
+- **Prefer** normal imports over lazy imports if there is no conditional logic
+- **Never** use `as any` if not necessary
+- **Keep builds reproducible**: avoid non-deterministic steps
+
+## Code Standards
+
+### Naming Conventions
+
+| Type                           | Convention         | Example                          |
+| ------------------------------ | ------------------ | -------------------------------- |
+| **Files & Folders**            | kebab-case         | `user-profile.ts`, `use-auth.ts` |
+| **Functions & Variables**      | camelCase          | `getUserData`, `userName`        |
+| **Components, Classes, Types** | PascalCase         | `UserProfile`, `ApiResponse`     |
+| **Database Elements**          | snake_case         | `user_profiles`, `created_at`    |
+| **Generic Types**              | T prefix           | `TUserData`, `TApiResponse`      |
+| **Type Parameters**            | `<type>Params`     | `GetUserParams`                  |
+| **Return Types**               | `<type>ReturnType` | `GetUserReturnType`              |
+
+### TypeScript Guidelines
+
+- **Always** be type-safe - no `any` types
+- **Never** duplicate type definitions
+- **Avoid** default exports unless necessary
+- **Use** explicit return types for functions
+
+### Documentation Standards
+
+Use JSDoc for all types and major functions:
+
+```typescript
+/**
+ * @description Retrieves user data by ID
+ * @param {string} userId - The unique identifier of the user
+ * @returns {Promise<User>} The user object
+ * @example
+ * const user = await getUserById('123')
+ * console.log(user.name) // 'John Doe'
+ */
+```
+
+## Frontend Development
+
+### React Hooks Guidelines
+
+- **Use** functional components and hooks only where needed
+- **Follow** React hooks rules (dependencies, no conditional hooks)
+- **Name** hooks with the `useX` convention
+- **Keep** side effects in `useEffect`/`useLayoutEffect`, not during render
+
+## Testing Guidelines
+
+### General Principles
+
+- **Create** tests in `./test/` directory
+- **Test** public APIs and observable behavior
+- **Keep** tests fast and deterministic
+
+### Testing with Bun
+
+```typescript
+import { beforeAll, describe, expect, it } from 'bun:test'
+
+describe('#<TEST_NAME>', () => {
+  // ------------------------------
+  // CONSTANTS
+
+  // ------------------------------
+  // VARIABLES
+
+  beforeAll(() => {
+    // Setup test environment
+  })
+
+  it('should work correctly', () => {
+    // Test implementation
+  })
+})
+```
+
+Run tests: `bun test`
+
+## Development Environment
+
+### Commands
+
+- **Install dependencies**: `bun install`
+- **Run tests**: `bun test`
+- **Build (all outputs)**: `bun run build`
+- **Type-check**: `bun run type-check`
+- **Lint**: `bun run lint`
+- **Format**: `bun run format`
+- **Pack tarball**: `bun run package`
+
+### Code Quality
+
+- **Be** efficient - avoid unnecessary dependencies
+- **Reuse** code and components
+- **Follow** DRY principles
+- **Write** clean, readable code
+
+## Commit Standards
+
+Follow commitlint conventions:
+
+- `feat:` New features
+- `build:` Build system changes
+- `fix:` Bug fixes
+- `docs:` Documentation changes
+- `style:` Code style changes
+- `refactor:` Code refactoring
+- `test:` Test additions/changes
+- `chore:` Maintenance tasks
+
+- `<type>(<scope>):` you can use a scope if it's relevant
+
+Keep messages short and descriptive.

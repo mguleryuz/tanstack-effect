@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src"],
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "outDir": "./dist/esm",
+    "sourceMap": true,
+    "rootDir": "./src",
+    "verbatimModuleSyntax": true
+  }
+}

@@ -1,38 +1,35 @@
 {
   "name": "<pkg_name>",
-  "description": "INVERTER typescript NPM package template",
+  "description": "<pkg_description>",
   "version": "0.0.0",
+  "license": "Apache-2.0",
+  "sideEffects": false,
   "exports": {
     ".": {
-      "types": "./dist/types/index.d.ts",
+      "require": "./dist/cjs/index.js",
       "import": "./dist/esm/index.js",
-      "default": "./dist/cjs/index.js"
+      "types": "./dist/types/index.d.ts"
     },
-    "./package.json": "./package.json"
+    "./client": {
+      "require": "./dist/cjs/client/index.js",
+      "import": "./dist/esm/client/index.js",
+      "types": "./dist/types/client/index.d.ts"
+    }
   },
-  "main": "./dist/cjs/index.js",
-  "module": "./dist/esm/index.js",
-  "types": "./dist/types/index.d.ts",
-  "typings": "./dist/types/index.d.ts",
-  "sideEffects": false,
   "files": [
     "dist"
   ],
-  "directories": {
-    "tool": "tools",
-    "test": "tests"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "watch": "tsc -w",
-    "typecheck": "tsc-files --pretty --project ./tsconfig.json --noEmit --module ESNext --declaration",
+    "type-check": "tsc-files --pretty --project ./tsconfig.json --noEmit --module ESNext --declaration",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
+    "lint": "eslint .",
+    "fill-placeholders": "sh ./script/fill-placeholders.sh",
     "build": "bun clean && bun build:cjs && bun build:esm && bun build:types",
-    "build:cjs": "tsc --project ./tsconfig.build.json --module commonjs --outDir ./dist/cjs --removeComments --verbatimModuleSyntax false && printf '{\"type\":\"commonjs\"}' > ./dist/cjs/package.json && tsc-alias --outDir ./dist/cjs && ts-add-js-extension --dir=dist/cjs --showchanges=false",
-    "build:esm": "tsc --project ./tsconfig.build.json --module ESNext --outDir ./dist/esm && printf '{\"type\": \"module\",\"sideEffects\":false}' > ./dist/esm/package.json && tsc-alias --outDir ./dist/esm && ts-add-js-extension --dir=dist/esm --showchanges=false",
-    "build:types": "tsc --project ./tsconfig.build.json --module ESNext --declarationDir ./dist/types --emitDeclarationOnly --declaration --declarationMap && tsc-alias --outDir ./dist/types",
-    "clean": "rm -rf dist tsconfig.tsbuildinfo tsconfig.build.tsbuildinfo",
+    "build:cjs": "tsc --project ./tsconfig.cjs.json && tsc-alias --outDir ./dist/cjs && ts-add-js-extension --dir=dist/cjs --showchanges=false",
+    "build:esm": "tsc --project ./tsconfig.esm.json && tsc-alias --outDir ./dist/esm && ts-add-js-extension --dir=dist/esm --showchanges=false",
+    "build:types": "tsc --project ./tsconfig.types.json && tsc-alias --outDir ./dist/types",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo node_modules bun.lockb",
     "postinstall": "husky || true",
     "prepack": "pinst --disable",
     "package": "bun run build && npm pack",
@@ -44,7 +41,7 @@
   },
   "lint-staged": {
     "*.{ts,tsx}": [
-      "bun typecheck"
+      "bun type-check"
     ],
     "*.{ts,tsx,js,jsx,mjs,cjs,json,md,css}": [
       "eslint --fix",
@@ -55,16 +52,15 @@
     "eslint": "^9.17.0",
     "typescript": "^5.7.2"
   },
-  "peerDependencies": {},
   "dependencies": {
-    "type-fest-4": "npm:type-fest@^4.41.0",
+    "type-fest-4": "npm:type-fest@latest",
     "debug": "^4.4.1"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
-    "@ianvs/prettier-plugin-sort-imports": "^4.6.2",
-    "@types/bun": "^1.2.20",
+    "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
+    "@types/bun": "^1.2.22",
     "@types/debug": "^4.1.12",
     "eslint-plugin-import-x": "^4.16.1",
     "eslint-plugin-prettier": "^5.5.4",
@@ -76,17 +72,13 @@
     "ts-add-js-extension": "^1.6.6",
     "tsc-alias": "^1.8.16",
     "tsc-files": "^1.1.4",
-    "typescript-eslint": "^8.40.0"
+    "typescript-eslint": "^8.44.0"
   },
-  "license": "LGPL-3.0",
   "homepage": "https://github.com/<github_username>/<pkg_name>",
+  "repository": "<github_username>/<pkg_name>",
   "authors": [
     "<github_username>"
   ],
-  "repository": "<github_username>/<pkg_name>",
-  "bugs": {
-    "url": "https://github.com/<github_username>/<pkg_name>/issues"
-  },
   "keywords": [
     "npm",
     "contracts",

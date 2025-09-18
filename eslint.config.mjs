@@ -2,15 +2,24 @@
 
 import importX from 'eslint-plugin-import-x'
 import prettier from 'eslint-plugin-prettier'
+import { defineConfig } from 'eslint/config'
 import tseslint from 'typescript-eslint'
 
-export default tseslint.config({
+export default defineConfig({
   files: ['**/*.{mjs,cjs,js,ts}'],
-  ignores: ['**/*.{config,test}.{mjs,cjs,js,ts}', '.*.mjs'],
+  ignores: [
+    'dist/**',
+    'node_modules/**',
+    '**/.*',
+    '**/*.test.{mjs,cjs,js,ts}',
+    '**/*.spec.{mjs,cjs,js,ts}',
+    '**/*.config.{mjs,cjs,js,ts}',
+  ],
   plugins: {
     '@typescript-eslint': tseslint.plugin,
     prettier,
-    'import-x': importX,
+    // Cast to any to work around upstream type incompatibility in plugin configs
+    'import-x': /** @type {any} */ (importX),
   },
 
   languageOptions: {

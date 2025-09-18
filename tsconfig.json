@@ -1,14 +1,42 @@
 {
-  // This configuration is used for local development and type checking.
-  "extends": "./tsconfig.base.json",
-  "include": ["src", "tests", "scripts"],
+  "include": ["src", "test", "script"],
+  "exclude": ["**/bak/*", "dist"],
   "compilerOptions": {
-    "module": "ESNext",
+    "tsBuildInfoFile": "./tsconfig.tsbuildinfo",
+
+    // Type checking
+    "strict": true,
+    "useDefineForClassFields": true,
+    "noImplicitReturns": true,
+    "useUnknownInCatchVariables": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    // JavaScript support
+    "allowJs": false,
+    "checkJs": false,
+
+    // Interop constraints
+    "esModuleInterop": false,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+
+    // Language and environment
     "moduleResolution": "Bundler",
-    "noEmit": true,
+    "module": "ESNext",
+    "target": "ESNext",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+
+    // Skip type checking for node modules
+    "skipLibCheck": true,
+
+    // Base URL and path mapping
+    "baseUrl": ".",
+    // Type aliasing
     "paths": {
-      "@/*": ["./src/*"],
-      "tests/*": ["./tests/*"]
+      "@/*": ["./src/*"]
     }
   }
 }
