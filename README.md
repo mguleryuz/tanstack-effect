@@ -39,109 +39,8 @@ The library is designed for a typed server-client workflow using Effect's `HttpA
 
 1. Use the client-safe hooks on the frontend
 
+<!-- BEGIN:client -->
 ```tsx
-// example/client.tsx
-import { useEffectQuery } from 'tanstack-effect/client'
-
-export default function Page() {
-  const user = useEffectQuery(
-    'user', // group key
-    'user', // endpoint key
-    { path: { username: 'test' } },
-    { includeCredentials: true, noCache: false }
-  )
-
-  return (
-    <div>
-      <h1>User</h1>
-      <p>{user.data?.username}</p>
-    </div>
-  )
-}
-```
-
-Available client hooks:
-
-- `useEffectQuery`
-- `useEffectInfiniteQuery`
-- `useEffectMutation`
-- `useSchemaForm`
-
-Import them from `tanstack-effect/client`. The main entry `tanstack-effect` is server-safe and used to build the typed client from your `HttpApi` definition.
-
-2. Define your API on the server and generate the client type
-
-```ts
-// example/server.ts
-import { HttpApi, HttpApiEndpoint, HttpApiGroup } from '@effect/platform'
-import { Schema } from 'effect'
-import { getTanstackEffectClient } from 'tanstack-effect'
-
-export const UserSchema = Schema.Struct({
-  username: Schema.String,
-})
-
-export const GetUserPathParams = Schema.Struct({
-  username: Schema.String,
-})
-
-export const userGroup = HttpApiGroup.make('user')
-  .add(
-    HttpApiEndpoint.get('user', '/:username')
-      .setPath(GetUserPathParams)
-      .addSuccess(UserSchema)
-  )
-  .prefix('/user')
-
-const ErrorResponse = Schema.Struct({
-  message: Schema.String,
-})
-
-export const Api = HttpApi.make('Api')
-  .addError(ErrorResponse, { status: 400 })
-  .addError(ErrorResponse, { status: 401 })
-  .addError(ErrorResponse, { status: 403 })
-  .addError(ErrorResponse, { status: 404 })
-  .addError(ErrorResponse, { status: 500 })
-  .addError(ErrorResponse, { status: 503 })
-  .addError(ErrorResponse, { status: 504 })
-  .addError(ErrorResponse, { status: 429 })
-  .addError(ErrorResponse, { status: 405 })
-  .addError(ErrorResponse, { status: 406 })
-  .addError(ErrorResponse, { status: 408 })
-  .addError(ErrorResponse, { status: 409 })
-  .add(userGroup)
-
-export class TanstackEffectClient extends getTanstackEffectClient(Api) {}
-
-export type TTanstackEffectClient = TanstackEffectClient['client']
-```
-
-3. Augment the `tanstack-effect` client interface in a `.d.ts`
-
-Place a declaration file accessible to your app (e.g. `src/types/tanstack-effect.d.ts`) and ensure your `tsconfig.json` includes it.
-
-```ts
-// example/tanstack-effect.d.ts
-import type { TTanstackEffectClient as Client } from './server'
-
-declare module 'tanstack-effect' {
-  interface TTanstackEffectClient extends Client {}
-}
-```
-
-### Schema-driven forms (Form Builder + Hook)
-
-Build forms directly from your Effect `Schema`:
-
-- `useSchemaForm` hook manages form state, validation, and field updates
-- `generateFormFieldsWithSchemaAnnotations(data, schema)` generates field metadata from your schema
-- `example/form-builder.tsx` is a reference UI that you can copy
-
-Minimal client example:
-
-```tsx
-// example/client.tsx
 import {
   useEffectMutation,
   useEffectQuery,
@@ -155,8 +54,15 @@ export default function Page() {
   const user = useEffectQuery(
     'user',
     'user',
-    { path: { username: 'test' } },
-    { includeCredentials: true }
+    {
+      path: {
+        username: 'test',
+      },
+    },
+    {
+      includeCredentials: true,
+      noCache: false,
+    }
   )
 
   const form = useSchemaForm<typeof UserSchema.Type>({
@@ -164,25 +70,137 @@ export default function Page() {
     initialData: user.data,
   })
 
-  const updateUser = useEffectMutation('user', 'updateUser')
+  const updateUser = useEffectMutation('user', 'updateUser', {
+    onSuccess: () => {
+      console.log('Updated User')
+    },
+  })
 
   return (
-    <FormBuilder
-      form={{
-        ...form,
-        setData: (data) => {
-          form.setData(data)
-          if (!data || !user.data?.username) return
-          updateUser.mutate({
-            path: { username: user.data.username },
-            payload: data,
-          })
-        },
-      }}
-    />
+    <div className="space-y-4">
+      <h1>User: {user.data?.username}</h1>
+      <h1>Update User</h1>
+      <FormBuilder
+        form={{
+          ...form,
+          // We can extend the form object to add custom logic
+          setData: (data) => {
+            // We can call the original setData method to update the form data
+            form.setData(data)
+            // We can also call the updateUser mutation to update the user
+            if (!data || !user.data?.username) return
+            updateUser.mutate({
+              path: {
+                username: user.data.username,
+              },
+              payload: data,
+            })
+          },
+        }}
+      />
+    </div>
   )
 }
 ```
+<!-- END:client -->
+
+Available client hooks:
+
+- `useEffectQuery`
+- `useEffectInfiniteQuery`
+- `useEffectMutation`
+- `useSchemaForm`
+
+Import them from `tanstack-effect/client`. The main entry `tanstack-effect` is server-safe and used to build the typed client from your `HttpApi` definition.
+
+2. Define your API on the server and generate the client type
+
+<!-- BEGIN:server -->
+```ts
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from '@effect/platform'
+import { Schema } from 'effect'
+import { getTanstackEffectClient } from 'tanstack-effect'
+
+export const UserSchema = Schema.Struct({
+  username: Schema.String,
+  name: Schema.String,
+  surname: Schema.String,
+  email: Schema.String,
+})
+
+export const GetUserPathParams = Schema.Struct({
+  username: Schema.String,
+})
+
+export const UpdateUserRequest = Schema.Struct({
+  username: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String),
+  surname: Schema.optional(Schema.String),
+  email: Schema.optional(Schema.String),
+})
+
+export const userGroup = HttpApiGroup.make('user')
+  .add(
+    HttpApiEndpoint.get('user', '/:username')
+      .setPath(GetUserPathParams)
+      .addSuccess(UserSchema)
+  )
+  .add(
+    HttpApiEndpoint.put('updateUser', '/:username')
+      .setPath(GetUserPathParams)
+      .setPayload(UpdateUserRequest)
+      .addSuccess(UserSchema)
+  )
+  .prefix('/user')
+
+const ErrorResponse = Schema.Struct({
+  message: Schema.String,
+})
+
+// Define the API contract
+export const Api = HttpApi.make('Api')
+  // Define global errors that apply to all endpoints
+  .addError(ErrorResponse, { status: 400 }) // Bad Request
+  .addError(ErrorResponse, { status: 401 }) // Unauthorized
+  .addError(ErrorResponse, { status: 403 }) // Forbidden
+  .addError(ErrorResponse, { status: 404 }) // Not Found
+  .addError(ErrorResponse, { status: 500 }) // Internal Server Error
+  .addError(ErrorResponse, { status: 503 }) // Service Unavailable
+  .addError(ErrorResponse, { status: 504 }) // Gateway Timeout
+  .addError(ErrorResponse, { status: 429 }) // Too Many Requests
+  .addError(ErrorResponse, { status: 405 }) // Method Not Allowed
+  .addError(ErrorResponse, { status: 406 }) // Not Acceptable
+  .addError(ErrorResponse, { status: 408 }) // Request Timeout
+  .addError(ErrorResponse, { status: 409 }) // Conflict
+  .add(userGroup)
+
+export class TanstackEffectClient extends getTanstackEffectClient(Api) {}
+
+export type TTanstackEffectClient = TanstackEffectClient['client']
+```
+<!-- END:server -->
+
+3. Augment the `tanstack-effect` client interface in a `.d.ts`
+
+Place a declaration file accessible to your app (e.g. `src/types/tanstack-effect.d.ts`) and ensure your `tsconfig.json` includes it.
+
+<!-- BEGIN:d.ts -->
+```ts
+import type { TTanstackEffectClient as Client } from './server'
+
+declare module 'tanstack-effect' {
+  interface TTanstackEffectClient extends Client {}
+}
+```
+<!-- END:d.ts -->
+
+### Schema-driven forms (Form Builder + Hook)
+
+Build forms directly from your Effect `Schema`:
+
+- `useSchemaForm` hook manages form state, validation, and field updates
+- `generateFormFieldsWithSchemaAnnotations(data, schema)` generates field metadata from your schema
+- `example/form-builder.tsx` is a reference UI that you can copy
 
 Using the example `FormBuilder` UI:
 

@@ -7,10 +7,6 @@ import {
 import { FormBuilder } from './form-builder'
 import { UserSchema } from './server'
 
-// Copy ./form-builder.tsx into your app and replace the placeholder UI
-// (Input, Textarea, Switch, Card, Badge, etc.) with your own components.
-// We use shadcn/ui, but any UI kit works with the same value/onChange props.
-
 export default function Page() {
   const user = useEffectQuery(
     'user',
