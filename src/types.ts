@@ -62,7 +62,9 @@ export type ExcludeHttpResponseTuple<T> = Exclude<
 export type GetCleanSuccessType<
   X extends keyof TTanstackEffectClient,
   Y extends keyof TTanstackEffectClient[X],
-> = ExcludeHttpResponseTuple<Effect.Effect.Success<GetReturnType<X, Y>>>
+> = ExcludeHttpResponseTuple<
+  GetReturnType<X, Y> extends Effect.Effect<infer A, any, any> ? A : never
+>
 
 /**
  * @description Get the promise success type
@@ -90,3 +92,9 @@ export interface ApiCallOptions {
    */
   noCache?: boolean
 }
+
+/**
+ * @description Opaque constructor type for Effect service tag classes.
+ * Returning this avoids leaking complex external symbol types in d.ts output.
+ */
+export type ServiceTagClass = abstract new (_: never) => unknown

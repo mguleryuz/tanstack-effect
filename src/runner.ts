@@ -3,14 +3,13 @@ import type {
   GetReturnType,
   PromiseSuccess,
   TTanstackEffectClient,
-  TTanstackEffectServiceTag,
 } from '@/types'
 import { FetchHttpClient } from '@effect/platform'
 import { Effect, Layer } from 'effect'
 
 import { EffectHttpError } from './client/error'
 
-let ApiClient: TTanstackEffectServiceTag
+let ApiClient: any
 
 // Create custom HttpClient layers with proper fetch configuration
 const createHttpClientLayer = (
@@ -62,10 +61,9 @@ export function apiEffect<
         `Method ${String(section)}.${String(method)} is not a function`
       )
     }
-    return yield* methodFn(params)
+    return yield* (methodFn as any)(params)
   })
-  // @ts-expect-error - client is pre user declaration
-  return res
+  return res as GetReturnType<X, Y>
 }
 
 /**
@@ -87,9 +85,15 @@ export function apiEffectRunner<
   includeCredentials = false,
   noCache = false
 ): PromiseSuccess<X, Y> {
-  const program = apiEffect(section, method, params)
+  const program = apiEffect(
+    section,
+    method,
+    params
+  ) as unknown as Effect.Effect<any, any, never>
   const httpLayer = createHttpClientLayer(includeCredentials, noCache)
-  const apiLayer = ApiClient.Default.pipe(Layer.provide(httpLayer))
+  const apiLayer = (ApiClient.Default as unknown as Layer.Layer<never>).pipe(
+    Layer.provide(httpLayer as unknown as Layer.Layer<never>)
+  ) as unknown as Layer.Layer<never>
 
   return Effect.runPromise(
     program.pipe(
@@ -99,6 +103,6 @@ export function apiEffectRunner<
   )
 }
 
-export function setApiClient(client: TTanstackEffectServiceTag) {
+export function setApiClient(client: any) {
   ApiClient = client
 }

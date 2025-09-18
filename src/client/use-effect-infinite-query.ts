@@ -26,7 +26,10 @@ export function useEffectInfiniteQuery<
   section: X,
   method: Y,
   params: Omit<GetRequestParams<X, Y>, 'urlParams'> & {
-    urlParams?: Omit<GetRequestParams<X, Y>['urlParams'], 'page' | 'limit'>
+    urlParams?: Omit<
+      GetRequestParams<X, Y> extends { urlParams: infer U } ? U : never,
+      'page' | 'limit'
+    >
   },
   options?: ApiCallOptions &
     Omit<

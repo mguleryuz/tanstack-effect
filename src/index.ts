@@ -14,6 +14,16 @@ export function getTanstackEffectClient<
   Groups extends HttpApiGroup.HttpApiGroup.Any,
   ApiError,
   ApiR,
+>(
+  api: HttpApi.HttpApi<Id, Groups, ApiError, ApiR>,
+  baseUrl?: string
+): new (_: never) => { client: HttpApiClient.Client<Groups, ApiError, never> }
+
+export function getTanstackEffectClient<
+  Id extends string,
+  Groups extends HttpApiGroup.HttpApiGroup.Any,
+  ApiError,
+  ApiR,
 >(api: HttpApi.HttpApi<Id, Groups, ApiError, ApiR>, baseUrl = '/api') {
   class TanstackEffectClient extends Effect.Service<TanstackEffectClient>()(
     'TanstackEffectClient',
@@ -28,7 +38,6 @@ export function getTanstackEffectClient<
     }
   ) {}
 
-  // @ts-expect-error - client is pre user declaration
   setApiClient(TanstackEffectClient)
 
   return TanstackEffectClient
