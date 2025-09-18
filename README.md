@@ -70,7 +70,7 @@ bun type-check
 
 ## License
 
-This package is licensed - see the [LICENSE](./LICENSE) file for details.
+This package is licensed - see the [LICENSE](./LICENSE.md) file for details.
 
 [ci-image]: https://badgen.net/github/checks/<github_username>/<pkg_name>/main?label=ci
 [ci-url]: https://github.com/<github_username>/<pkg_name>/actions/workflows/ci.yaml

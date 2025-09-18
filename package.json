@@ -6,14 +6,14 @@
   "sideEffects": false,
   "exports": {
     ".": {
-      "require": "./dist/cjs/index.js",
-      "import": "./dist/esm/index.js",
-      "types": "./dist/types/index.d.ts"
+      "require": "./src/index.ts",
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
     },
     "./client": {
-      "require": "./dist/cjs/client/index.js",
-      "import": "./dist/esm/client/index.js",
-      "types": "./dist/types/client/index.d.ts"
+      "require": "./src/client/index.ts",
+      "import": "./src/client/index.ts",
+      "types": "./src/client/index.ts"
     }
   },
   "files": [

@@ -1,0 +1,14 @@
+{
+  "exports": {
+    ".": {
+      "require": "./dist/cjs/index.js",
+      "import": "./dist/esm/index.js",
+      "types": "./dist/types/index.d.ts"
+    },
+    "./client": {
+      "require": "./dist/cjs/client/index.js",
+      "import": "./dist/esm/client/index.js",
+      "types": "./dist/types/client/index.d.ts"
+    }
+  }
+}

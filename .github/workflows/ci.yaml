@@ -40,6 +40,10 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Swap exports to dist for publish
+        run: |
+          node -e "const fs=require('fs');const prod=JSON.parse(fs.readFileSync('prod.package.json','utf8'));const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));pkg.exports=prod.exports;fs.writeFileSync('package.json',JSON.stringify(pkg,null,2)+'\n');"
+
       - name: Build
         run: bun run build
 
