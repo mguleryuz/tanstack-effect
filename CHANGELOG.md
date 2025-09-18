@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.3](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.2...v0.0.3) (2025-09-18)
+
+### Features
+
+- add custom EffectHttpError class and update imports for error handling ([d65a1a6](https://github.com/mguleryuz/tanstack-effect/commit/d65a1a6ac677e6b96297b01705d56e9669e634fa))
+
 ### [0.0.2](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.1...v0.0.2) (2025-09-18)
 
 ### 0.0.1 (2025-09-18)
