@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.6](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.5...v0.0.6) (2025-09-18)
+
+
+### Features
+
+* enhance README with code examples and add script for automatic injection of sections ([0664280](https://github.com/mguleryuz/tanstack-effect/commit/066428085c5b6821b5f41c70ec16960d989409a9))
+
 ### [0.0.5](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.4...v0.0.5) (2025-09-18)
 
 
