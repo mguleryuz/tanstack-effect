@@ -1,6 +1,10 @@
 import { useState } from 'react'
-import type { FormFieldDefinition } from 'tanstack-effect'
-import type { UseSchemaFormReturn } from 'tanstack-effect/client'
+import { formatLabel, getNestedValue } from 'tanstack-effect'
+import type {
+  FormBuilderProps,
+  FormFieldProps,
+  NestedFormProps,
+} from 'tanstack-effect/client'
 
 const Input = null as any
 const Textarea = null as any
@@ -17,36 +21,9 @@ const ChevronDown = null as any
 const ChevronRight = null as any
 const Info = null as any
 
-export interface FormBuilderProps<T = any> {
-  form: UseSchemaFormReturn<T>
-  className?: string
-  title?: string
-  collapsible?: boolean
-  defaultCollapsed?: boolean
-  initialCollapsed?: boolean
-}
-
-// Helper function to get nested value
-function getNestedValue(obj: any, path: string): any {
-  return path.split('.').reduce((current, key) => current?.[key], obj)
-}
-
-// Helper to format labels
-function formatLabel(key: string): string {
-  return key
-    .replace(/([A-Z])/g, ' $1')
-    .replace(/^./, (str) => str.toUpperCase())
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-}
-
-// Individual form field component
-interface FormFieldProps {
-  field: FormFieldDefinition
-  value: any
-  onChange: (value: any) => void
-  error?: string
-}
-
+/**
+ * Individual form field component
+ */
 function FormField({ field, value, onChange, error }: FormFieldProps) {
   const [showDescription, setShowDescription] = useState(true)
 
@@ -139,15 +116,9 @@ function FormField({ field, value, onChange, error }: FormFieldProps) {
   )
 }
 
-// Nested object form component
-interface NestedFormProps<T = any> {
-  field: FormFieldDefinition
-  form: UseSchemaFormReturn<T>
-  basePath: string
-  level?: number
-  initialCollapsed?: boolean
-}
-
+/**
+ * Nested object form component
+ */
 function NestedForm<T = any>({
   field,
   form,
@@ -237,7 +208,9 @@ function NestedForm<T = any>({
   )
 }
 
-// Main form builder component
+/**
+ * Main form builder component
+ */
 export function FormBuilder<T = any>({
   form,
   className,

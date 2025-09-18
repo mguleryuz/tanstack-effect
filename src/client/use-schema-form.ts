@@ -3,8 +3,8 @@
 import { Schema } from 'effect'
 import * as React from 'react'
 
-import type { FormFieldDefinition } from '../schema-to-fields'
-import { generateFormFieldsWithSchemaAnnotations } from '../schema-to-fields'
+import type { FormFieldDefinition } from '../schema-form'
+import { generateFormFieldsWithSchemaAnnotations } from '../schema-form'
 
 export interface UseSchemaFormOptions<T> {
   schema: Schema.Schema<T>
@@ -23,6 +23,31 @@ export interface UseSchemaFormReturn<T> {
   resetValidation: () => void
   updateFromJson: (jsonString: string) => boolean
   fields: Record<string, FormFieldDefinition>
+}
+
+// Types used by the example FormBuilder UI
+export interface FormBuilderProps<T = any> {
+  form: UseSchemaFormReturn<T>
+  className?: string
+  title?: string
+  collapsible?: boolean
+  defaultCollapsed?: boolean
+  initialCollapsed?: boolean
+}
+
+export interface FormFieldProps {
+  field: FormFieldDefinition
+  value: any
+  onChange: (value: any) => void
+  error?: string
+}
+
+export interface NestedFormProps<T = any> {
+  field: FormFieldDefinition
+  form: UseSchemaFormReturn<T>
+  basePath: string
+  level?: number
+  initialCollapsed?: boolean
 }
 
 export function useSchemaForm<T>({

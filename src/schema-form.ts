@@ -13,12 +13,20 @@ export interface FormFieldDefinition {
 }
 
 // Helper to format field labels from keys
-function formatLabel(key: string): string {
+export function formatLabel(key: string): string {
   return key
     .replace(/([A-Z])/g, ' $1')
     .replace(/^./, (str) => str.toUpperCase())
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/\b\w/g, (l) => l.toUpperCase())
+}
+
+// Generic helper to safely access nested values via dot path
+export function getNestedValue(obj: any, path: string): any {
+  if (!obj || !path) return obj
+  return path
+    .split('.')
+    .reduce((current: any, key: string) => current?.[key], obj)
 }
 
 // Generate form fields from a data object structure
