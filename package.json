@@ -26,8 +26,8 @@
     "lint": "eslint .",
     "fill-placeholders": "sh ./script/fill-placeholders.sh",
     "build": "bun clean && bun build:cjs && bun build:esm && bun build:types",
-    "build:cjs": "tsc --project ./tsconfig.cjs.json && tsc-alias --outDir ./dist/cjs && ts-add-js-extension --dir=dist/cjs --showchanges=false",
-    "build:esm": "tsc --project ./tsconfig.esm.json && tsc-alias --outDir ./dist/esm && ts-add-js-extension --dir=dist/esm --showchanges=false",
+    "build:cjs": "tsc --project ./tsconfig.cjs.json && tsc-alias --outDir ./dist/cjs && ts-add-js-extension --dir=dist/cjs --showprogress=false",
+    "build:esm": "tsc --project ./tsconfig.esm.json && tsc-alias --outDir ./dist/esm && ts-add-js-extension --dir=dist/esm --showprogress=false",
     "build:types": "tsc --project ./tsconfig.types.json && tsc-alias --outDir ./dist/types",
     "clean": "rm -rf dist tsconfig.tsbuildinfo node_modules bun.lockb",
     "postinstall": "husky || true",
@@ -40,7 +40,7 @@
     "release:pub": "git push --follow-tags origin $(git rev-parse --abbrev-ref HEAD)"
   },
   "lint-staged": {
-    "*.{ts,tsx}": [
+    "*.{ts,tsx,d.ts}": [
       "bun type-check"
     ],
     "*.{ts,tsx,js,jsx,mjs,cjs,json,md,css}": [

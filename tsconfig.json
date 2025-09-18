@@ -1,5 +1,5 @@
 {
-  "include": ["src", "test", "script"],
+  "include": ["src", "example", "test", "script"],
   "exclude": ["**/bak/*", "dist"],
   "compilerOptions": {
     "tsBuildInfoFile": "./tsconfig.tsbuildinfo",
@@ -12,6 +12,8 @@
     "noImplicitOverride": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    "jsx": "react-jsx",
+    "noEmit": true,
 
     // JavaScript support
     "allowJs": false,

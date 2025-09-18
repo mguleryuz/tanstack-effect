@@ -2,14 +2,13 @@ import type {
   ApiCallOptions,
   GetCleanSuccessType,
   GetRequestParams,
+  TTanstackEffectClient,
 } from '@/types'
 import type { UseQueryOptions } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
 
+import { apiEffectRunner } from '../runner'
 import { EffectHttpError } from './error'
-import { apiEffectRunner } from './runner'
-
-type TanstackEffectClient = any
 
 /**
  * @description Create the Tanstack query helper with proper initialData type inference
@@ -21,8 +20,8 @@ type TanstackEffectClient = any
  * @returns
  */
 export function useEffectQuery<
-  X extends keyof TanstackEffectClient,
-  Y extends keyof TanstackEffectClient[X],
+  X extends keyof TTanstackEffectClient,
+  Y extends keyof TTanstackEffectClient[X],
 >(
   section: X,
   method: Y,
@@ -43,8 +42,8 @@ export function useEffectQuery<
 
 // Overload 2: When initialData is not provided, data is nullable
 export function useEffectQuery<
-  X extends keyof TanstackEffectClient,
-  Y extends keyof TanstackEffectClient[X],
+  X extends keyof TTanstackEffectClient,
+  Y extends keyof TTanstackEffectClient[X],
 >(
   section: X,
   method: Y,
@@ -58,8 +57,8 @@ export function useEffectQuery<
 
 // Implementation
 export function useEffectQuery<
-  X extends keyof TanstackEffectClient,
-  Y extends keyof TanstackEffectClient[X],
+  X extends keyof TTanstackEffectClient,
+  Y extends keyof TTanstackEffectClient[X],
 >(
   section: X,
   method: Y,

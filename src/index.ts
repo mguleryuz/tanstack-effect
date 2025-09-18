@@ -1,5 +1,7 @@
-import { HttpApi, HttpApiClient } from '@effect/platform'
+import { HttpApi, HttpApiClient, HttpApiGroup } from '@effect/platform'
 import { Effect } from 'effect'
+
+import { setApiClient } from './runner'
 
 /**
  * @description Get the Tanstack Effect client
@@ -8,9 +10,12 @@ import { Effect } from 'effect'
  * @returns The Tanstack Effect client
  */
 export function getTanstackEffectClient<
-  T extends ReturnType<typeof HttpApi.make>,
->(api: T, baseUrl = '/api') {
-  return class TanstackEffectClient extends Effect.Service<TanstackEffectClient>()(
+  Id extends string,
+  Groups extends HttpApiGroup.HttpApiGroup.Any,
+  ApiError,
+  ApiR,
+>(api: HttpApi.HttpApi<Id, Groups, ApiError, ApiR>, baseUrl = '/api') {
+  class TanstackEffectClient extends Effect.Service<TanstackEffectClient>()(
     'TanstackEffectClient',
     {
       effect: Effect.gen(function* () {
@@ -22,6 +27,11 @@ export function getTanstackEffectClient<
       }),
     }
   ) {}
+
+  // @ts-expect-error - client is pre user declaration
+  setApiClient(TanstackEffectClient)
+
+  return TanstackEffectClient
 }
 
 export * from './types'

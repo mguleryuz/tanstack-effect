@@ -2,14 +2,13 @@ import type {
   ApiCallOptions,
   GetCleanSuccessType,
   GetRequestParams,
+  TTanstackEffectClient,
 } from '@/types'
 import type { UseInfiniteQueryOptions } from '@tanstack/react-query'
 import { useInfiniteQuery } from '@tanstack/react-query'
 
+import { apiEffectRunner } from '../runner'
 import type { EffectHttpError } from './error'
-import { apiEffectRunner } from './runner'
-
-type TanstackEffectClient = any
 
 /**
  * @description Create the Tanstack infinite query helper for paginated data
@@ -20,14 +19,13 @@ type TanstackEffectClient = any
  * @returns
  */
 export function useEffectInfiniteQuery<
-  X extends keyof TanstackEffectClient,
-  Y extends keyof TanstackEffectClient[X],
+  X extends keyof TTanstackEffectClient,
+  Y extends keyof TTanstackEffectClient[X],
   TPageParam = number,
 >(
   section: X,
   method: Y,
   params: Omit<GetRequestParams<X, Y>, 'urlParams'> & {
-    // @ts-expect-error - TanstackEffectClient is not available until the dev declares it
     urlParams?: Omit<GetRequestParams<X, Y>['urlParams'], 'page' | 'limit'>
   },
   options?: ApiCallOptions &

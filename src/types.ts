@@ -1,7 +1,21 @@
 import type { HttpClientResponse } from '@effect/platform'
-import type { Effect } from 'effect'
+import { Effect, Layer } from 'effect'
 
-type TanstackEffectClient = any
+/**
+ * @description Base interface to be augmented by consumers with their API client shape.
+ */
+export interface TTanstackEffectClient {}
+
+/**
+ * @description Base interface to be augmented by consumers with their API client shape.
+ */
+export type TTanstackEffectServiceTag = Effect.Effect<
+  { client: TTanstackEffectClient },
+  never,
+  any
+> & {
+  Default: Layer.Layer<any, any, any>
+}
 
 /**
  * @description Get the request params
@@ -10,10 +24,10 @@ type TanstackEffectClient = any
  * @returns The request params
  */
 export type GetRequestParams<
-  X extends keyof TanstackEffectClient,
-  Y extends keyof TanstackEffectClient[X],
-> = TanstackEffectClient[X][Y] extends (...args: any[]) => any
-  ? Parameters<TanstackEffectClient[X][Y]>[0]
+  X extends keyof TTanstackEffectClient,
+  Y extends keyof TTanstackEffectClient[X],
+> = TTanstackEffectClient[X][Y] extends (...args: any[]) => any
+  ? Parameters<TTanstackEffectClient[X][Y]>[0]
   : never
 
 /**
@@ -23,10 +37,10 @@ export type GetRequestParams<
  * @returns The return type
  */
 export type GetReturnType<
-  X extends keyof TanstackEffectClient,
-  Y extends keyof TanstackEffectClient[X],
-> = TanstackEffectClient[X][Y] extends (...args: any[]) => any
-  ? ReturnType<TanstackEffectClient[X][Y]>
+  X extends keyof TTanstackEffectClient,
+  Y extends keyof TTanstackEffectClient[X],
+> = TTanstackEffectClient[X][Y] extends (...args: any[]) => any
+  ? ReturnType<TTanstackEffectClient[X][Y]>
   : never
 
 /**
@@ -46,8 +60,8 @@ export type ExcludeHttpResponseTuple<T> = Exclude<
  * @returns The clean success type
  */
 export type GetCleanSuccessType<
-  X extends keyof TanstackEffectClient,
-  Y extends keyof TanstackEffectClient[X],
+  X extends keyof TTanstackEffectClient,
+  Y extends keyof TTanstackEffectClient[X],
 > = ExcludeHttpResponseTuple<Effect.Effect.Success<GetReturnType<X, Y>>>
 
 /**
@@ -57,8 +71,8 @@ export type GetCleanSuccessType<
  * @returns The promise success type
  */
 export type PromiseSuccess<
-  X extends keyof TanstackEffectClient,
-  Y extends keyof TanstackEffectClient[X],
+  X extends keyof TTanstackEffectClient,
+  Y extends keyof TTanstackEffectClient[X],
 > = Promise<GetCleanSuccessType<X, Y>>
 
 /**

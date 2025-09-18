@@ -1,6 +1,4 @@
-import type { GetRequestParams } from '@/types'
-
-type TanstackEffectClient = any
+import type { GetRequestParams, TTanstackEffectClient } from '@/types'
 
 /**
  * @description Create the Tanstack query key
@@ -11,8 +9,8 @@ type TanstackEffectClient = any
  * @returns
  */
 export function getQueryKey<
-  X extends keyof TanstackEffectClient,
-  Y extends keyof TanstackEffectClient[X],
+  X extends keyof TTanstackEffectClient,
+  Y extends keyof TTanstackEffectClient[X],
 >(
   section: X,
   method: Y,

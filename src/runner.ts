@@ -1,11 +1,16 @@
-import type { GetRequestParams, GetReturnType, PromiseSuccess } from '@/types'
+import type {
+  GetRequestParams,
+  GetReturnType,
+  PromiseSuccess,
+  TTanstackEffectClient,
+  TTanstackEffectServiceTag,
+} from '@/types'
 import { FetchHttpClient } from '@effect/platform'
 import { Effect, Layer } from 'effect'
 
-import { EffectHttpError } from './error'
+import { EffectHttpError } from './client/error'
 
-type TanstackEffectClient = any
-let ApiClient: TanstackEffectClient
+let ApiClient: TTanstackEffectServiceTag
 
 // Create custom HttpClient layers with proper fetch configuration
 const createHttpClientLayer = (
@@ -45,8 +50,8 @@ const createHttpClientLayer = (
  * @returns
  */
 export function apiEffect<
-  X extends keyof TanstackEffectClient,
-  Y extends keyof TanstackEffectClient[X],
+  X extends keyof TTanstackEffectClient,
+  Y extends keyof TTanstackEffectClient[X],
 >(section: X, method: Y, params: GetRequestParams<X, Y>): GetReturnType<X, Y> {
   const res = Effect.gen(function* () {
     const { client } = yield* ApiClient
@@ -57,8 +62,9 @@ export function apiEffect<
         `Method ${String(section)}.${String(method)} is not a function`
       )
     }
-    return yield* (methodFn as any)(params)
-  }) as GetReturnType<X, Y>
+    return yield* methodFn(params)
+  })
+  // @ts-expect-error - client is pre user declaration
   return res
 }
 
@@ -72,8 +78,8 @@ export function apiEffect<
  * @returns PromiseSuccess
  */
 export function apiEffectRunner<
-  X extends keyof TanstackEffectClient,
-  Y extends keyof TanstackEffectClient[X],
+  X extends keyof TTanstackEffectClient,
+  Y extends keyof TTanstackEffectClient[X],
 >(
   section: X,
   method: Y,
@@ -93,6 +99,6 @@ export function apiEffectRunner<
   )
 }
 
-export function setApiClient(client: TanstackEffectClient) {
+export function setApiClient(client: TTanstackEffectServiceTag) {
   ApiClient = client
 }

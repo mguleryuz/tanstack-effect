@@ -2,14 +2,13 @@ import type {
   ApiCallOptions,
   GetCleanSuccessType,
   GetRequestParams,
+  TTanstackEffectClient,
 } from '@/types'
 import type { UseMutationOptions } from '@tanstack/react-query'
 import { useMutation } from '@tanstack/react-query'
 
+import { apiEffectRunner } from '../runner'
 import type { EffectHttpError } from './error'
-import { apiEffectRunner } from './runner'
-
-type TanstackEffectClient = any
 
 /**
  * @description Create the Tanstack mutation helper with smart parameter handling
@@ -19,8 +18,8 @@ type TanstackEffectClient = any
  * @returns
  */
 export function useEffectMutation<
-  X extends keyof TanstackEffectClient,
-  Y extends keyof TanstackEffectClient[X],
+  X extends keyof TTanstackEffectClient,
+  Y extends keyof TTanstackEffectClient[X],
 >(
   section: X,
   method: Y,
