@@ -53,8 +53,12 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
-    "type-fest-4": "npm:type-fest@latest",
-    "debug": "^4.4.1"
+    "debug": "^4.4.1",
+    "type-fest-4": "npm:type-fest@^4"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.89.0",
+    "@effect/platform": "^0.90.10"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
