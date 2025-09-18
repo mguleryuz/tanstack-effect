@@ -4,16 +4,32 @@ import { getTanstackEffectClient } from 'tanstack-effect'
 
 export const UserSchema = Schema.Struct({
   username: Schema.String,
+  name: Schema.String,
+  surname: Schema.String,
+  email: Schema.String,
 })
 
 export const GetUserPathParams = Schema.Struct({
   username: Schema.String,
 })
 
+export const UpdateUserRequest = Schema.Struct({
+  username: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String),
+  surname: Schema.optional(Schema.String),
+  email: Schema.optional(Schema.String),
+})
+
 export const userGroup = HttpApiGroup.make('user')
   .add(
     HttpApiEndpoint.get('user', '/:username')
       .setPath(GetUserPathParams)
+      .addSuccess(UserSchema)
+  )
+  .add(
+    HttpApiEndpoint.put('updateUser', '/:username')
+      .setPath(GetUserPathParams)
+      .setPayload(UpdateUserRequest)
       .addSuccess(UserSchema)
   )
   .prefix('/user')

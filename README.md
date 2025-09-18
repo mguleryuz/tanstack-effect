@@ -65,6 +65,7 @@ Available client hooks:
 - `useEffectQuery`
 - `useEffectInfiniteQuery`
 - `useEffectMutation`
+- `useSchemaForm`
 
 Import them from `tanstack-effect/client`. The main entry `tanstack-effect` is server-safe and used to build the typed client from your `HttpApi` definition.
 
@@ -128,6 +129,69 @@ declare module 'tanstack-effect' {
   interface TTanstackEffectClient extends Client {}
 }
 ```
+
+### Schema-driven forms (Form Builder + Hook)
+
+Build forms directly from your Effect `Schema`:
+
+- `useSchemaForm` hook manages form state, validation, and field updates
+- `generateFormFieldsWithSchemaAnnotations(data, schema)` generates field metadata from your schema
+- `example/form-builder.tsx` is a reference UI that you can copy
+
+Minimal client example:
+
+```tsx
+// example/client.tsx
+import {
+  useEffectMutation,
+  useEffectQuery,
+  useSchemaForm,
+} from 'tanstack-effect/client'
+
+import { FormBuilder } from './form-builder'
+import { UserSchema } from './server'
+
+export default function Page() {
+  const user = useEffectQuery(
+    'user',
+    'user',
+    { path: { username: 'test' } },
+    { includeCredentials: true }
+  )
+
+  const form = useSchemaForm<typeof UserSchema.Type>({
+    schema: UserSchema,
+    initialData: user.data,
+  })
+
+  const updateUser = useEffectMutation('user', 'updateUser')
+
+  return (
+    <FormBuilder
+      form={{
+        ...form,
+        setData: (data) => {
+          form.setData(data)
+          if (!data || !user.data?.username) return
+          updateUser.mutate({
+            path: { username: user.data.username },
+            payload: data,
+          })
+        },
+      }}
+    />
+  )
+}
+```
+
+Using the example `FormBuilder` UI:
+
+- Copy `tanstack-effect/example/form-builder.tsx` into your app (e.g. `src/components/form-builder.tsx`).
+- Replace the placeholder UI elements (`Input`, `Textarea`, `Switch`, `Card`, `Badge`, etc.) with your preferred UI library.
+- We use `shadcn/ui` in our app, but any UI kit works. The builder expects standard `value`, `onChange`, and basic layout components.
+- Supports nested objects, labels, descriptions, simple validation error display, and optional collapsing.
+
+This lets you infer form fields directly from your schema without maintaining separate field configs.
 
 ## Developing
 

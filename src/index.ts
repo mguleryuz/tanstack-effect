@@ -46,5 +46,6 @@ export function getTanstackEffectClient<
 export * from './client'
 export * from './error'
 export * from './runner'
+export * from './schema-to-fields'
 export * from './types'
 export * from './util'

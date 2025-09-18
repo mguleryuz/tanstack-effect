@@ -1,4 +1,15 @@
-import { useEffectQuery } from 'tanstack-effect/client'
+import {
+  useEffectMutation,
+  useEffectQuery,
+  useSchemaForm,
+} from 'tanstack-effect/client'
+
+import { FormBuilder } from './form-builder'
+import { UserSchema } from './server'
+
+// Copy ./form-builder.tsx into your app and replace the placeholder UI
+// (Input, Textarea, Switch, Card, Badge, etc.) with your own components.
+// We use shadcn/ui, but any UI kit works with the same value/onChange props.
 
 export default function Page() {
   const user = useEffectQuery(
@@ -15,10 +26,39 @@ export default function Page() {
     }
   )
 
+  const form = useSchemaForm<typeof UserSchema.Type>({
+    schema: UserSchema,
+    initialData: user.data,
+  })
+
+  const updateUser = useEffectMutation('user', 'updateUser', {
+    onSuccess: () => {
+      console.log('Updated User')
+    },
+  })
+
   return (
-    <div>
-      <h1>User</h1>
-      <p>{user.data?.username}</p>
+    <div className="space-y-4">
+      <h1>User: {user.data?.username}</h1>
+      <h1>Update User</h1>
+      <FormBuilder
+        form={{
+          ...form,
+          // We can extend the form object to add custom logic
+          setData: (data) => {
+            // We can call the original setData method to update the form data
+            form.setData(data)
+            // We can also call the updateUser mutation to update the user
+            if (!data || !user.data?.username) return
+            updateUser.mutate({
+              path: {
+                username: user.data.username,
+              },
+              payload: data,
+            })
+          },
+        }}
+      />
     </div>
   )
 }
