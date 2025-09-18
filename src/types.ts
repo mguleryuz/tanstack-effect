@@ -92,9 +92,3 @@ export interface ApiCallOptions {
    */
   noCache?: boolean
 }
-
-/**
- * @description Opaque constructor type for Effect service tag classes.
- * Returning this avoids leaking complex external symbol types in d.ts output.
- */
-export type ServiceTagClass = abstract new (_: never) => unknown
