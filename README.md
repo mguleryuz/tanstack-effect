@@ -30,8 +30,104 @@ Install Bun ( bun is the default package manager for this project ( its optional
 # Supported on macOS, Linux, and WSL
 curl -fsSL https://bun.sh/install | bash
 # Upgrade Bun every once in a while
-bun upgrage
+bun upgrade
 ```
+
+## Usage
+
+The library is designed for a typed server-client workflow using Effect's `HttpApi`.
+
+1. Define your API on the server and generate the client type
+
+```ts
+// example/server.ts
+import { HttpApi, HttpApiEndpoint, HttpApiGroup } from '@effect/platform'
+import { Schema } from 'effect'
+import { getTanstackEffectClient } from 'tanstack-effect'
+
+export const UserSchema = Schema.Struct({
+  username: Schema.String,
+})
+
+export const GetUserPathParams = Schema.Struct({
+  username: Schema.String,
+})
+
+export const userGroup = HttpApiGroup.make('user')
+  .add(
+    HttpApiEndpoint.get('user', '/:username')
+      .setPath(GetUserPathParams)
+      .addSuccess(UserSchema)
+  )
+  .prefix('/user')
+
+const ErrorResponse = Schema.Struct({
+  message: Schema.String,
+})
+
+export const Api = HttpApi.make('Api')
+  .addError(ErrorResponse, { status: 400 })
+  .addError(ErrorResponse, { status: 401 })
+  .addError(ErrorResponse, { status: 403 })
+  .addError(ErrorResponse, { status: 404 })
+  .addError(ErrorResponse, { status: 500 })
+  .addError(ErrorResponse, { status: 503 })
+  .addError(ErrorResponse, { status: 504 })
+  .addError(ErrorResponse, { status: 429 })
+  .addError(ErrorResponse, { status: 405 })
+  .addError(ErrorResponse, { status: 406 })
+  .addError(ErrorResponse, { status: 408 })
+  .addError(ErrorResponse, { status: 409 })
+  .add(userGroup)
+
+export class TanstackEffectClient extends getTanstackEffectClient(Api) {}
+
+export type TTanstackEffectClient = TanstackEffectClient['client']
+```
+
+2. Augment the `tanstack-effect` client interface in a `.d.ts`
+
+Place a declaration file accessible to your app (e.g. `src/types/tanstack-effect.d.ts`) and ensure your `tsconfig.json` includes it.
+
+```ts
+// example/tanstack-effect.d.ts
+import type { TTanstackEffectClient as Client } from './server'
+
+declare module 'tanstack-effect' {
+  interface TTanstackEffectClient extends Client {}
+}
+```
+
+3. Use the client-safe hooks on the frontend
+
+```tsx
+// example/client.tsx
+import { useEffectQuery } from 'tanstack-effect/client'
+
+export default function Page() {
+  const user = useEffectQuery(
+    'user', // group key
+    'user', // endpoint key
+    { path: { username: 'test' } },
+    { includeCredentials: true, noCache: false }
+  )
+
+  return (
+    <div>
+      <h1>User</h1>
+      <p>{user.data?.username}</p>
+    </div>
+  )
+}
+```
+
+Available client hooks:
+
+- `useEffectQuery`
+- `useEffectInfiniteQuery`
+- `useEffectMutation`
+
+Import them from `tanstack-effect/client`. The main entry `tanstack-effect` is server-safe and used to build the typed client from your `HttpApi` definition.
 
 ## Developing
 
