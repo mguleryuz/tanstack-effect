@@ -78,6 +78,6 @@ This package is licensed - see the [LICENSE](./LICENSE.md) file for details.
 [twitter-url]: https://twitter.com/<x_username>
 [twitter-image]: https://img.shields.io/twitter/follow/<x_username>.svg?label=follow+<brand_name>
 [license-image]: https://img.shields.io/badge/License-Apache%20v2-blue
-[license-url]: ./LICENSE
+[license-url]: ./LICENSE.md
 [npm-latest-image]: https://img.shields.io/npm/v/<pkg_name>/latest.svg
 [npm-downloads-image]: https://img.shields.io/npm/dm/<pkg_name>.svg
