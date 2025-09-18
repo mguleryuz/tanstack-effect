@@ -1,6 +1,9 @@
+'use client'
+
 import type { UseInfiniteQueryOptions } from '@tanstack/react-query'
 import { useInfiniteQuery } from '@tanstack/react-query'
 
+import type { EffectHttpError } from '../error'
 import { apiEffectRunner } from '../runner'
 import type {
   ApiCallOptions,
@@ -8,7 +11,6 @@ import type {
   GetRequestParams,
   TTanstackEffectClient,
 } from '../types'
-import type { EffectHttpError } from './error'
 
 /**
  * @description Create the Tanstack infinite query helper for paginated data

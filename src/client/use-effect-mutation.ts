@@ -1,6 +1,9 @@
+'use client'
+
 import type { UseMutationOptions } from '@tanstack/react-query'
 import { useMutation } from '@tanstack/react-query'
 
+import type { EffectHttpError } from '../error'
 import { apiEffectRunner } from '../runner'
 import type {
   ApiCallOptions,
@@ -8,7 +11,6 @@ import type {
   GetRequestParams,
   TTanstackEffectClient,
 } from '../types'
-import type { EffectHttpError } from './error'
 
 /**
  * @description Create the Tanstack mutation helper with smart parameter handling

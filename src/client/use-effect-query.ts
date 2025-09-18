@@ -1,6 +1,9 @@
+'use client'
+
 import type { UseQueryOptions } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
 
+import { EffectHttpError } from '../error'
 import { apiEffectRunner } from '../runner'
 import type {
   ApiCallOptions,
@@ -8,7 +11,6 @@ import type {
   GetRequestParams,
   TTanstackEffectClient,
 } from '../types'
-import { EffectHttpError } from './error'
 
 /**
  * @description Create the Tanstack query helper with proper initialData type inference

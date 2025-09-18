@@ -1,4 +1,4 @@
-import type { GetRequestParams, TTanstackEffectClient } from '../types'
+import type { GetRequestParams, TTanstackEffectClient } from './types'
 
 /**
  * @description Create the Tanstack query key

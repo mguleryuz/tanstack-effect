@@ -1,7 +1,7 @@
 import { FetchHttpClient } from '@effect/platform'
 import { Effect, Layer } from 'effect'
 
-import { EffectHttpError } from './client/error'
+import { EffectHttpError } from './error'
 import type {
   GetRequestParams,
   GetReturnType,
