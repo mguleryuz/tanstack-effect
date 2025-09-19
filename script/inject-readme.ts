@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-type Section = 'client' | 'server' | 'd.ts'
+type Section = 'client' | 'server' | 'd.ts' | 'openapi'
 
 const pkgRoot = resolve(__dirname, '..')
 const readmePath = resolve(pkgRoot, 'README.md')
@@ -13,6 +13,7 @@ const sectionToFile: Record<Section, { path: string; lang: string }> = {
     path: resolve(pkgRoot, 'example', 'tanstack-effect.d.ts'),
     lang: 'ts',
   },
+  openapi: { path: resolve(pkgRoot, 'example', 'openapi.ts'), lang: 'ts' },
 }
 
 function slurp(filePath: string): string {
