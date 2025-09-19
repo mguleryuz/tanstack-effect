@@ -114,6 +114,22 @@ Available client hooks:
 
 Import them from `tanstack-effect/client`. The main entry `tanstack-effect` is server-safe and used to build the typed client from your `HttpApi` definition.
 
+### Schema-driven forms (Form Builder + Hook)
+
+Build forms directly from your Effect `Schema`:
+
+- `useSchemaForm` hook manages form state, validation, and field updates
+- `example/form-builder.tsx` is a reference UI that you can copy
+
+Using the example `FormBuilder` UI:
+
+- Copy `example/form-builder.tsx` into your app (e.g. `src/components/form-builder.tsx`).
+- Replace the placeholder UI elements (`Input`, `Textarea`, `Switch`, `Card`, `Badge`, etc.) with your preferred UI library.
+- We use `shadcn/ui` in our app, but any UI kit works. The builder expects standard `value`, `onChange`, and basic layout components.
+- Supports nested objects, labels, descriptions, simple validation error display, and optional collapsing.
+
+This lets you infer form fields directly from your schema without maintaining separate field configs.
+
 2. Define your API on the server and generate the client type
 
 <!-- BEGIN:server -->
@@ -122,6 +138,7 @@ import { HttpApi, HttpApiEndpoint, HttpApiGroup } from '@effect/platform'
 import { Schema } from 'effect'
 import { getTanstackEffectClient } from 'tanstack-effect'
 
+// Base user schema - i.e. the schema which would be in the database
 export const UserSchema = Schema.Struct({
   username: Schema.String,
   name: Schema.String,
@@ -129,16 +146,13 @@ export const UserSchema = Schema.Struct({
   email: Schema.String,
 })
 
+// Path params for the user endpoint
 export const GetUserPathParams = Schema.Struct({
   username: Schema.String,
 })
 
-export const UpdateUserRequest = Schema.Struct({
-  username: Schema.optional(Schema.String),
-  name: Schema.optional(Schema.String),
-  surname: Schema.optional(Schema.String),
-  email: Schema.optional(Schema.String),
-})
+// Update user request - i.e. the schema which would be sent to the server
+export const UpdateUserRequest = Schema.partial(UserSchema)
 
 export const userGroup = HttpApiGroup.make('user')
   .add(
@@ -195,7 +209,70 @@ declare module 'tanstack-effect' {
 ```
 <!-- END:d.ts -->
 
-4. Set up OpenAPI documentation (optional)
+4. Set up the route for the API (required)
+
+<!-- BEGIN:user -->
+```ts
+import type { GetCleanSuccessType, GetRequestParams } from 'tanstack-effect'
+
+// Mock Hono class / for demonstration purposes
+class Hono {
+  [key: string]: any
+}
+
+// Minimal mock server to serve the OpenAPI spec
+const app = new Hono()
+
+// Get user route like its defined in the schema
+app.get('/user/:username', async (c: any) => {
+  const { username } = c.req.param()
+
+  // Some function to get the user
+  const request = async (
+    params: GetRequestParams<'user', 'user'>
+  ): Promise<GetCleanSuccessType<'user', 'user'>> => {
+    // Some logic to get the user
+    return {} as any
+  }
+
+  const user = await request({
+    path: {
+      username,
+    },
+  })
+
+  return c.json(user)
+})
+
+// Update user route like its defined in the schema
+app.put('/user/:username', async (c: any) => {
+  const { username } = c.req.param()
+  const body: GetRequestParams<'user', 'updateUser'>['payload'] =
+    await c.req.json()
+
+  // Some function to update the user
+  const request = async (
+    params: GetRequestParams<'user', 'updateUser'>
+  ): Promise<GetCleanSuccessType<'user', 'updateUser'>> => {
+    // Some logic to update the user
+    return {} as any
+  }
+
+  const updatedUser = await request({
+    path: {
+      username,
+    },
+    payload: body,
+  })
+
+  return c.json(updatedUser)
+})
+
+export default app
+```
+<!-- END:user -->
+
+5. Set up OpenAPI documentation (optional)
 
 <!-- BEGIN:openapi -->
 ```ts
@@ -249,23 +326,6 @@ export default {
 }
 ```
 <!-- END:openapi -->
-
-### Schema-driven forms (Form Builder + Hook)
-
-Build forms directly from your Effect `Schema`:
-
-- `useSchemaForm` hook manages form state, validation, and field updates
-- `generateFormFieldsWithSchemaAnnotations(data, schema)` generates field metadata from your schema
-- `example/form-builder.tsx` is a reference UI that you can copy
-
-Using the example `FormBuilder` UI:
-
-- Copy `tanstack-effect/example/form-builder.tsx` into your app (e.g. `src/components/form-builder.tsx`).
-- Replace the placeholder UI elements (`Input`, `Textarea`, `Switch`, `Card`, `Badge`, etc.) with your preferred UI library.
-- We use `shadcn/ui` in our app, but any UI kit works. The builder expects standard `value`, `onChange`, and basic layout components.
-- Supports nested objects, labels, descriptions, simple validation error display, and optional collapsing.
-
-This lets you infer form fields directly from your schema without maintaining separate field configs.
 
 ## Developing
 

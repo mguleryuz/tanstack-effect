@@ -2,6 +2,7 @@ import { HttpApi, HttpApiEndpoint, HttpApiGroup } from '@effect/platform'
 import { Schema } from 'effect'
 import { getTanstackEffectClient } from 'tanstack-effect'
 
+// Base user schema - i.e. the schema which would be in the database
 export const UserSchema = Schema.Struct({
   username: Schema.String,
   name: Schema.String,
@@ -9,16 +10,13 @@ export const UserSchema = Schema.Struct({
   email: Schema.String,
 })
 
+// Path params for the user endpoint
 export const GetUserPathParams = Schema.Struct({
   username: Schema.String,
 })
 
-export const UpdateUserRequest = Schema.Struct({
-  username: Schema.optional(Schema.String),
-  name: Schema.optional(Schema.String),
-  surname: Schema.optional(Schema.String),
-  email: Schema.optional(Schema.String),
-})
+// Update user request - i.e. the schema which would be sent to the server
+export const UpdateUserRequest = Schema.partial(UserSchema)
 
 export const userGroup = HttpApiGroup.make('user')
   .add(
