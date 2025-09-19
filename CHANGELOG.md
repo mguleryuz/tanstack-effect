@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.8](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.7...v0.0.8) (2025-09-19)
+
+
+### Features
+
+* implement user routes and update README with new API documentation ([c3dd449](https://github.com/mguleryuz/tanstack-effect/commit/c3dd4495456369e003f75fd8e8ad90e9c4ae81dc))
+
 ### [0.0.7](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.6...v0.0.7) (2025-09-19)
 
 
