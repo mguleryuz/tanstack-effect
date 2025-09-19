@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.7](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.6...v0.0.7) (2025-09-19)
+
+
+### Features
+
+* add OpenAPI documentation setup and update README with new section ([5544335](https://github.com/mguleryuz/tanstack-effect/commit/5544335265b1c60c993c713afb8fa29fded50d9e))
+
 ### [0.0.6](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.5...v0.0.6) (2025-09-18)
 
 
