@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.9](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.8...v0.0.9) (2025-09-28)
+
+
+### Features
+
+* enhance form handling with array support and improve nested form components ([6953931](https://github.com/mguleryuz/tanstack-effect/commit/69539311501ae9c160a3daafc62783a33a7c8c94))
+
 ### [0.0.8](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.7...v0.0.8) (2025-09-19)
 
 
