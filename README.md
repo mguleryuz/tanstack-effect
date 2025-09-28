@@ -42,6 +42,9 @@ The library is designed for a typed server-client workflow using Effect's `HttpA
 
 <!-- BEGIN:client -->
 ```tsx
+// You need to import the server file for the routes to register in runtime
+import './server'
+
 import {
   useEffectMutation,
   useEffectQuery,

@@ -1,3 +1,6 @@
+// You need to import the server file for the routes to register in runtime
+import './server'
+
 import {
   useEffectMutation,
   useEffectQuery,

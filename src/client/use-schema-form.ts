@@ -4,7 +4,11 @@ import { Schema } from 'effect'
 import * as React from 'react'
 
 import type { FormFieldDefinition } from '../schema-form'
-import { generateFormFieldsWithSchemaAnnotations } from '../schema-form'
+import {
+  generateFormFieldsWithSchemaAnnotations,
+  getNestedValue,
+  setNestedValue,
+} from '../schema-form'
 
 export interface UseSchemaFormOptions<T> {
   schema: Schema.Schema<T>
@@ -31,7 +35,6 @@ export interface FormBuilderProps<T = any> {
   className?: string
   title?: string
   collapsible?: boolean
-  defaultCollapsed?: boolean
   initialCollapsed?: boolean
 }
 
@@ -100,22 +103,8 @@ export function useSchemaForm<T>({
     (path: string, value: any) => {
       if (!data) return
 
-      const newData = { ...data } as any
-      const pathArray = path.split('.')
-      let current: any = newData
-
-      // Navigate to the parent of the target property
-      for (let i = 0; i < pathArray.length - 1; i++) {
-        if (!current[pathArray[i]]) {
-          current[pathArray[i]] = {}
-        }
-        current = current[pathArray[i]]
-      }
-
-      const fieldKey = pathArray[pathArray.length - 1]
-      const originalValue = current[fieldKey]
-
-      // Type coercion based on original value type
+      // Get the current value at the path for type coercion
+      const originalValue = getNestedValue(data, path)
       let coercedValue = value
 
       // Handle null/undefined values for different types
@@ -147,8 +136,7 @@ export function useSchemaForm<T>({
         }
       }
 
-      // Set the value
-      current[fieldKey] = coercedValue
+      const newData = setNestedValue(data, path, coercedValue)
       setData(newData)
       setHasChanges(true)
 

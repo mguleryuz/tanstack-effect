@@ -2,7 +2,7 @@
 export interface FormFieldDefinition {
   key: string
   label?: string
-  type: 'string' | 'number' | 'boolean' | 'object'
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array'
   description?: string
   required?: boolean
   min?: number
@@ -14,19 +14,96 @@ export interface FormFieldDefinition {
 
 // Helper to format field labels from keys
 export function formatLabel(key: string): string {
-  return key
+  // Handle array notation - extract the final property name
+  // e.g., "airdrop[0].amount" -> "amount", "metadata.socialMediaUrls[0].url" -> "url"
+  const cleanKey =
+    key
+      .split('.')
+      .pop()
+      ?.replace(/\[\d+\]$/, '') || key
+
+  return cleanKey
     .replace(/([A-Z])/g, ' $1')
     .replace(/^./, (str) => str.toUpperCase())
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/\b\w/g, (l) => l.toUpperCase())
 }
 
-// Generic helper to safely access nested values via dot path
+// Path parsing utilities
+export function normalizePath(path: string): string[] {
+  // Convert array notation to dot notation and split into path segments
+  // e.g., "arrayField[0].property" -> ["arrayField", "0", "property"]
+  return path
+    .replace(/\[(\d+)\]/g, '.$1')
+    .split('.')
+    .filter(Boolean)
+}
+
+export function isNumericKey(key: string): boolean {
+  return !isNaN(Number(key))
+}
+
+// Generic helper to safely access nested values via dot path (supports array indexing)
 export function getNestedValue(obj: any, path: string): any {
   if (!obj || !path) return obj
-  return path
-    .split('.')
-    .reduce((current: any, key: string) => current?.[key], obj)
+
+  const pathArray = normalizePath(path)
+
+  return pathArray.reduce((current: any, key: string) => {
+    // Handle numeric indices for arrays
+    if (isNumericKey(key) && Array.isArray(current)) {
+      const index = Number(key)
+      return current[index]
+    }
+    return current?.[key]
+  }, obj)
+}
+
+// Helper to set nested values via dot path (supports array indexing)
+export function setNestedValue(obj: any, path: string, value: any): any {
+  if (!obj || !path) return obj
+
+  const pathArray = normalizePath(path)
+  const result = { ...obj } // Create a shallow copy of the root
+
+  let current: any = result
+
+  // Navigate to the parent of the target property
+  for (let i = 0; i < pathArray.length - 1; i++) {
+    const key = pathArray[i]
+
+    // Handle numeric indices for arrays
+    if (isNumericKey(key)) {
+      const index = Number(key)
+      if (!Array.isArray(current)) {
+        current = []
+      }
+      if (!current[index]) {
+        current[index] = {}
+      }
+      current = current[index]
+    } else {
+      if (!current[key]) {
+        current[key] = {}
+      }
+      current = current[key]
+    }
+  }
+
+  const fieldKey = pathArray[pathArray.length - 1]
+
+  // Handle array field updates (when fieldKey is numeric)
+  if (isNumericKey(fieldKey)) {
+    const index = Number(fieldKey)
+    if (!Array.isArray(current)) {
+      current = []
+    }
+    current[index] = value
+  } else {
+    current[fieldKey] = value
+  }
+
+  return result
 }
 
 // Generate form fields from a data object structure
@@ -68,8 +145,44 @@ export function generateFormFieldsFromData(
           children,
         }
       }
-    } else if (!Array.isArray(value)) {
-      // Skip arrays for now
+    } else if (fieldType === 'array' && Array.isArray(value)) {
+      // Handle arrays - create children based on first element or empty object structure
+      let children: Record<string, FormFieldDefinition> = {}
+
+      if (
+        value.length > 0 &&
+        typeof value[0] === 'object' &&
+        value[0] !== null
+      ) {
+        // Use first element to determine structure, but generate children with simple keys
+        const tempChildren = generateFormFieldsFromData(
+          value[0],
+          `${fullKey}[0]`,
+          new Set(visited),
+          maxDepth - 1
+        )
+        // Convert the keys to simple property names (remove the array path prefix)
+        children = Object.entries(tempChildren).reduce(
+          (acc, [childKey, childField]) => {
+            const simpleKey = childKey.replace(`${fullKey}[0].`, '')
+            acc[simpleKey] = { ...childField, key: simpleKey }
+            return acc
+          },
+          {} as Record<string, FormFieldDefinition>
+        )
+      } else {
+        // For empty arrays, we still need to know the structure from schema
+        // For now, create an empty children object - this will be handled by schema annotations
+        children = {}
+      }
+
+      fields[fullKey] = {
+        key: fullKey,
+        label: formatLabel(key),
+        type: 'array',
+        children,
+      }
+    } else {
       const fieldDef: FormFieldDefinition = {
         key: fullKey,
         label: formatLabel(key),
@@ -78,7 +191,7 @@ export function generateFormFieldsFromData(
 
       // Add number-specific properties
       if (fieldType === 'number') {
-        fieldDef.step = getNumberStep(key, value)
+        fieldDef.step = getNumberStep(key)
         const minMax = getNumberMinMax(key, value)
         if (minMax.min !== undefined) fieldDef.min = minMax.min
         if (minMax.max !== undefined) fieldDef.max = minMax.max
@@ -93,7 +206,7 @@ export function generateFormFieldsFromData(
 }
 
 // Helper to determine number step
-function getNumberStep(key: string, _value: any): number {
+function getNumberStep(key: string): number {
   if (
     key.includes('threshold') ||
     key.includes('ratio') ||
@@ -135,7 +248,9 @@ function getNumberMinMax(
 }
 
 // Determine field type from value
-function getFieldType(value: any): 'string' | 'number' | 'boolean' | 'object' {
+function getFieldType(
+  value: any
+): 'string' | 'number' | 'boolean' | 'object' | 'array' {
   if (value === null || value === undefined) {
     return 'string'
   }
@@ -149,13 +264,19 @@ function getFieldType(value: any): 'string' | 'number' | 'boolean' | 'object' {
       return 'boolean'
     case 'string':
       // Check if string looks like a number (for cases where API returns string numbers)
-      if (!isNaN(Number(value)) && !isNaN(parseFloat(value))) {
+      // Exclude hex strings (starting with 0x) and strings that contain non-numeric characters
+      if (
+        !isNaN(Number(value)) &&
+        !isNaN(parseFloat(value)) &&
+        !value.startsWith('0x') &&
+        !/[a-zA-Z]/.test(value)
+      ) {
         return 'number'
       }
       return 'string'
     case 'object':
       if (Array.isArray(value)) {
-        return 'object' // We'll handle arrays as objects for now
+        return 'array'
       }
       return 'object'
     default:
@@ -225,11 +346,67 @@ function extractSchemaAnnotations(
           )
           Object.assign(descriptions, nestedDescriptions)
         }
+
+        // Handle arrays (TupleType with rest elements)
+        if (
+          propSig.type &&
+          propSig.type._tag === 'TupleType' &&
+          propSig.type.rest &&
+          propSig.type.rest.length > 0
+        ) {
+          // Extract description for the array itself
+          if (propSig.type.annotations) {
+            Object.getOwnPropertySymbols(propSig.type.annotations).forEach(
+              (symbol) => {
+                if (symbol.description === 'effect/annotation/Description') {
+                  const description = propSig.type.annotations[symbol]
+                  if (description) {
+                    descriptions[fullPath] = description
+                  }
+                }
+              }
+            )
+          }
+
+          // Process the array element type
+          const elementType = propSig.type.rest[0]?.type
+          if (elementType && elementType._tag === 'TypeLiteral') {
+            const nestedDescriptions = extractSchemaAnnotations(
+              elementType,
+              `${fullPath}[]`
+            )
+            Object.assign(descriptions, nestedDescriptions)
+          }
+        }
       })
+    }
+
+    // Handle Refinement types (like Schema.String.pipe(Schema.pattern(...)))
+    if (ast._tag === 'Refinement' && ast.from) {
+      // Extract annotations from the refinement itself first
+      if (ast.annotations) {
+        Object.getOwnPropertySymbols(ast.annotations).forEach((symbol) => {
+          if (symbol.description === 'effect/annotation/Description' && path) {
+            descriptions[path] = ast.annotations[symbol]
+          }
+        })
+      }
+      // Then recursively extract from the 'from' field
+      const refinedDescriptions = extractSchemaAnnotations(ast.from, path)
+      Object.assign(descriptions, refinedDescriptions)
     }
 
     // Handle Transformation types (common in Effect Schema)
     if (ast._tag === 'Transformation' && ast.to) {
+      // Extract annotations from the transformation itself first
+      if (ast.annotations) {
+        Object.getOwnPropertySymbols(ast.annotations).forEach((symbol) => {
+          if (symbol.description === 'effect/annotation/Description' && path) {
+            descriptions[path] = ast.annotations[symbol]
+          }
+        })
+      }
+      // Then recursively extract from the 'to' field
       const transformedDescriptions = extractSchemaAnnotations(ast.to, path)
       Object.assign(descriptions, transformedDescriptions)
     }
@@ -248,6 +425,10 @@ export function generateFormFieldsWithSchemaAnnotations(
   const fields = generateFormFieldsFromData(data)
   const descriptions = extractSchemaAnnotations(schema)
 
+  // Also generate fields from schema for missing data
+  const schemaFields = generateFormFieldsFromSchema(schema)
+  mergeSchemaFields(fields, schemaFields)
+
   // Recursively assign descriptions to all fields including nested ones
   function assignDescriptionsRecursively(
     fieldObj: Record<string, FormFieldDefinition>
@@ -260,6 +441,17 @@ export function generateFormFieldsWithSchemaAnnotations(
         field.description = descriptions[field.key]
       }
 
+      // Handle array element descriptions (stored as field[] in descriptions)
+      if (field.type === 'array' && field.children) {
+        Object.keys(field.children).forEach((childKey) => {
+          const arrayElementKey = `${field.key}[]${childKey.startsWith('.') ? '' : '.'}${childKey}`
+          if (descriptions[arrayElementKey]) {
+            field.children![childKey].description =
+              descriptions[arrayElementKey]
+          }
+        })
+      }
+
       // Recursively assign to children
       if (field.children) {
         assignDescriptionsRecursively(field.children)
@@ -269,4 +461,180 @@ export function generateFormFieldsWithSchemaAnnotations(
 
   assignDescriptionsRecursively(fields)
   return fields
+}
+
+// Generate form fields from schema structure (for cases where data is missing)
+function generateFormFieldsFromSchema(
+  schema: any,
+  path = ''
+): Record<string, FormFieldDefinition> {
+  const fields: Record<string, FormFieldDefinition> = {}
+
+  try {
+    if (!schema) return fields
+
+    const ast = schema.ast || schema
+
+    // Handle TypeLiteral (Struct) types
+    if (ast._tag === 'TypeLiteral' && Array.isArray(ast.propertySignatures)) {
+      ast.propertySignatures.forEach((propSig: any) => {
+        if (!propSig || !propSig.name) return
+
+        const keyName = propSig.name
+        const fullPath = path ? `${path}.${keyName}` : keyName
+
+        // Check if field is required (not in a Union with UndefinedKeyword)
+        const isRequired = !isUnionWithUndefined(propSig.type)
+
+        // Get the actual type, handling Union types (optional fields)
+        const actualType = getActualType(propSig.type)
+
+        // Handle arrays (TupleType with rest elements)
+        if (
+          actualType &&
+          actualType._tag === 'TupleType' &&
+          actualType.rest &&
+          actualType.rest.length > 0
+        ) {
+          const elementType = actualType.rest[0]?.type
+          if (elementType && elementType._tag === 'TypeLiteral') {
+            // For array elements, generate children with simple keys (not full paths)
+            const children = generateFormFieldsFromSchema(elementType, '')
+
+            fields[fullPath] = {
+              key: fullPath,
+              label: formatLabel(keyName),
+              type: 'array',
+              required: isRequired,
+              children,
+            }
+          }
+        }
+        // Handle regular object types
+        else if (actualType && actualType._tag === 'TypeLiteral') {
+          const children = generateFormFieldsFromSchema(actualType, fullPath)
+          if (Object.keys(children).length > 0) {
+            fields[fullPath] = {
+              key: fullPath,
+              label: formatLabel(keyName),
+              type: 'object',
+              required: isRequired,
+              children,
+            }
+          }
+        }
+        // Handle primitive types
+        else if (actualType) {
+          const fieldType = getSchemaFieldType(actualType)
+          if (fieldType !== 'unknown') {
+            fields[fullPath] = {
+              key: fullPath,
+              label: formatLabel(keyName),
+              type: fieldType,
+              required: isRequired,
+            }
+          }
+        }
+      })
+    }
+  } catch {
+    // Silently handle errors in schema parsing
+  }
+
+  return fields
+}
+
+// Check if a type is a Union that includes UndefinedKeyword (indicating optional field)
+function isUnionWithUndefined(typeAst: any): boolean {
+  try {
+    if (!typeAst) return false
+
+    // Handle Union types (optional fields)
+    if (typeAst._tag === 'Union' && Array.isArray(typeAst.types)) {
+      return typeAst.types.some(
+        (t: any) => t._tag === 'UndefinedKeyword' || t._tag === 'VoidKeyword'
+      )
+    }
+
+    return false
+  } catch {
+    return false
+  }
+}
+
+// Get the actual type from a potentially Union type (handles optional fields)
+function getActualType(typeAst: any): any {
+  try {
+    if (!typeAst) return null
+
+    // Handle Union types (optional fields)
+    if (typeAst._tag === 'Union' && Array.isArray(typeAst.types)) {
+      // Find the non-undefined type in the union
+      const nonUndefinedType = typeAst.types.find(
+        (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+      )
+      return nonUndefinedType || typeAst
+    }
+
+    return typeAst
+  } catch {
+    return typeAst
+  }
+}
+
+// Get field type from schema AST
+function getSchemaFieldType(
+  typeAst: any
+): 'string' | 'number' | 'boolean' | 'object' | 'array' | 'unknown' {
+  try {
+    if (!typeAst) return 'unknown'
+
+    // First get the actual type (handles optional fields)
+    const actualType = getActualType(typeAst)
+    if (!actualType) return 'unknown'
+
+    const tag = actualType._tag
+
+    // Handle Refinement types (like Schema.String.pipe(Schema.pattern(...)))
+    if (tag === 'Refinement' && actualType.from) {
+      return getSchemaFieldType(actualType.from)
+    }
+
+    // Handle Transformation types (like Schema.String.pipe(...))
+    if (tag === 'Transformation' && actualType.to) {
+      return getSchemaFieldType(actualType.to)
+    }
+
+    switch (tag) {
+      case 'StringKeyword':
+        return 'string'
+      case 'NumberKeyword':
+        return 'number'
+      case 'BooleanKeyword':
+        return 'boolean'
+      case 'TypeLiteral':
+        return 'object'
+      case 'TupleType':
+        return 'array'
+      default:
+        return 'unknown'
+    }
+  } catch {
+    return 'unknown'
+  }
+}
+
+// Merge schema-generated fields into data-generated fields
+function mergeSchemaFields(
+  dataFields: Record<string, FormFieldDefinition>,
+  schemaFields: Record<string, FormFieldDefinition>
+) {
+  Object.keys(schemaFields).forEach((key) => {
+    if (!dataFields[key]) {
+      dataFields[key] = schemaFields[key]
+    } else if (dataFields[key].children && schemaFields[key].children) {
+      // Recursively merge children
+      mergeSchemaFields(dataFields[key].children!, schemaFields[key].children!)
+    }
+  })
 }
