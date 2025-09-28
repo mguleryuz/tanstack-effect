@@ -317,31 +317,38 @@ function extractSchemaAnnotations(
 
         const fullPath = path ? `${path}.${keyName}` : keyName
 
+        // Get the actual type, handling Union types (optional fields)
+        const actualType = getActualType(propSig.type)
+
         // Extract description from property type annotations using Symbols
-        if (propSig.type && propSig.type.annotations) {
-          // Effect Schema uses Symbol keys for annotations
-          Object.getOwnPropertySymbols(propSig.type.annotations).forEach(
-            (symbol) => {
-              if (symbol.description === 'effect/annotation/Description') {
-                const description = propSig.type.annotations[symbol]
-                // Only add meaningful descriptions (not generic ones like "a number")
-                if (
-                  description &&
-                  description !== 'a number' &&
-                  description !== 'a string' &&
-                  description !== 'a boolean'
-                ) {
-                  descriptions[fullPath] = description
+        // Check both the original type (for Union annotations) and actual type
+        const typesToCheck = [propSig.type, actualType].filter(Boolean)
+        for (const typeToCheck of typesToCheck) {
+          if (typeToCheck && typeToCheck.annotations) {
+            // Effect Schema uses Symbol keys for annotations
+            Object.getOwnPropertySymbols(typeToCheck.annotations).forEach(
+              (symbol) => {
+                if (symbol.description === 'effect/annotation/Description') {
+                  const description = typeToCheck.annotations[symbol]
+                  // Only add meaningful descriptions (not generic ones like "a number")
+                  if (
+                    description &&
+                    description !== 'a number' &&
+                    description !== 'a string' &&
+                    description !== 'a boolean'
+                  ) {
+                    descriptions[fullPath] = description
+                  }
                 }
               }
-            }
-          )
+            )
+          }
         }
 
         // Recursively process nested structures
-        if (propSig.type && propSig.type._tag === 'TypeLiteral') {
+        if (actualType && actualType._tag === 'TypeLiteral') {
           const nestedDescriptions = extractSchemaAnnotations(
-            propSig.type,
+            actualType,
             fullPath
           )
           Object.assign(descriptions, nestedDescriptions)
@@ -349,17 +356,17 @@ function extractSchemaAnnotations(
 
         // Handle arrays (TupleType with rest elements)
         if (
-          propSig.type &&
-          propSig.type._tag === 'TupleType' &&
-          propSig.type.rest &&
-          propSig.type.rest.length > 0
+          actualType &&
+          actualType._tag === 'TupleType' &&
+          actualType.rest &&
+          actualType.rest.length > 0
         ) {
           // Extract description for the array itself
-          if (propSig.type.annotations) {
-            Object.getOwnPropertySymbols(propSig.type.annotations).forEach(
+          if (actualType.annotations) {
+            Object.getOwnPropertySymbols(actualType.annotations).forEach(
               (symbol) => {
                 if (symbol.description === 'effect/annotation/Description') {
-                  const description = propSig.type.annotations[symbol]
+                  const description = actualType.annotations[symbol]
                   if (description) {
                     descriptions[fullPath] = description
                   }
@@ -369,7 +376,7 @@ function extractSchemaAnnotations(
           }
 
           // Process the array element type
-          const elementType = propSig.type.rest[0]?.type
+          const elementType = actualType.rest[0]?.type
           if (elementType && elementType._tag === 'TypeLiteral') {
             const nestedDescriptions = extractSchemaAnnotations(
               elementType,
@@ -497,17 +504,32 @@ function generateFormFieldsFromSchema(
           actualType.rest.length > 0
         ) {
           const elementType = actualType.rest[0]?.type
-          if (elementType && elementType._tag === 'TypeLiteral') {
-            // For array elements, generate children with simple keys (not full paths)
-            const children = generateFormFieldsFromSchema(elementType, '')
+          let children: Record<string, FormFieldDefinition> = {}
 
-            fields[fullPath] = {
-              key: fullPath,
-              label: formatLabel(keyName),
-              type: 'array',
-              required: isRequired,
-              children,
+          if (elementType && elementType._tag === 'TypeLiteral') {
+            // For array elements that are structs, generate children with simple keys (not full paths)
+            children = generateFormFieldsFromSchema(elementType, '')
+          } else if (elementType) {
+            // For arrays of primitives, create a single field for the array elements
+            const elementFieldType = getSchemaFieldType(elementType)
+            if (elementFieldType !== 'unknown') {
+              children = {
+                value: {
+                  key: 'value',
+                  label: 'Value',
+                  type: elementFieldType,
+                  required: true, // Array elements are typically required
+                },
+              }
             }
+          }
+
+          fields[fullPath] = {
+            key: fullPath,
+            label: formatLabel(keyName),
+            type: 'array',
+            required: isRequired,
+            children,
           }
         }
         // Handle regular object types

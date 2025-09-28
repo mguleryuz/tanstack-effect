@@ -65,10 +65,7 @@ function FormField({ field, value, onChange, error }: FormFieldProps) {
       case 'boolean':
         return (
           <div className="flex items-center space-x-2">
-            <Switch
-              checked={Boolean(value)}
-              onCheckedChange={(e: any) => onChange(e)}
-            />
+            <Switch checked={Boolean(value)} onCheckedChange={onChange} />
             <span className="text-muted-foreground text-sm">
               {value ? 'Enabled' : 'Disabled'}
             </span>
@@ -349,9 +346,9 @@ export function FormBuilder<T = any>({
 }: FormBuilderProps<T>) {
   const [isCollapsed, setIsCollapsed] = useState(initialCollapsed)
 
-  const rootFields = Object.entries(form.fields)
-    .filter(([, field]) => !field.key.includes('.'))
-    .sort(([, a], [, b]) => a.key.localeCompare(b.key))
+  const rootFields = Object.entries(form.fields).filter(
+    ([, field]) => !field.key.includes('.')
+  )
 
   const content = (
     <div className="space-y-4 sm:space-y-6">
