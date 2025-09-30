@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.11](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.10...v0.0.11) (2025-09-30)
+
+
+### Features
+
+* add support for discriminated unions in form generation and improve type handling ([c570353](https://github.com/mguleryuz/tanstack-effect/commit/c570353196c11a2b3f370a20298a6d3b532cc1e7))
+* refactor API structure to use shared file and update related documentation ([f7ed002](https://github.com/mguleryuz/tanstack-effect/commit/f7ed0028b09ad5ed19538ba0a759cee2854a8cda))
+
 ### [0.0.10](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.9...v0.0.10) (2025-09-28)
 
 ### [0.0.9](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.8...v0.0.9) (2025-09-28)
