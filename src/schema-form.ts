@@ -10,6 +10,8 @@ export interface FormFieldDefinition {
   step?: number
   placeholder?: string
   children?: Record<string, FormFieldDefinition>
+  // For discriminated unions
+  condition?: { field: string; value: any }
 }
 
 // Helper to format field labels from keys
@@ -317,38 +319,31 @@ function extractSchemaAnnotations(
 
         const fullPath = path ? `${path}.${keyName}` : keyName
 
-        // Get the actual type, handling Union types (optional fields)
-        const actualType = getActualType(propSig.type)
-
         // Extract description from property type annotations using Symbols
-        // Check both the original type (for Union annotations) and actual type
-        const typesToCheck = [propSig.type, actualType].filter(Boolean)
-        for (const typeToCheck of typesToCheck) {
-          if (typeToCheck && typeToCheck.annotations) {
-            // Effect Schema uses Symbol keys for annotations
-            Object.getOwnPropertySymbols(typeToCheck.annotations).forEach(
-              (symbol) => {
-                if (symbol.description === 'effect/annotation/Description') {
-                  const description = typeToCheck.annotations[symbol]
-                  // Only add meaningful descriptions (not generic ones like "a number")
-                  if (
-                    description &&
-                    description !== 'a number' &&
-                    description !== 'a string' &&
-                    description !== 'a boolean'
-                  ) {
-                    descriptions[fullPath] = description
-                  }
+        if (propSig.type && propSig.type.annotations) {
+          // Effect Schema uses Symbol keys for annotations
+          Object.getOwnPropertySymbols(propSig.type.annotations).forEach(
+            (symbol) => {
+              if (symbol.description === 'effect/annotation/Description') {
+                const description = propSig.type.annotations[symbol]
+                // Only add meaningful descriptions (not generic ones like "a number")
+                if (
+                  description &&
+                  description !== 'a number' &&
+                  description !== 'a string' &&
+                  description !== 'a boolean'
+                ) {
+                  descriptions[fullPath] = description
                 }
               }
-            )
-          }
+            }
+          )
         }
 
         // Recursively process nested structures
-        if (actualType && actualType._tag === 'TypeLiteral') {
+        if (propSig.type && propSig.type._tag === 'TypeLiteral') {
           const nestedDescriptions = extractSchemaAnnotations(
-            actualType,
+            propSig.type,
             fullPath
           )
           Object.assign(descriptions, nestedDescriptions)
@@ -356,17 +351,17 @@ function extractSchemaAnnotations(
 
         // Handle arrays (TupleType with rest elements)
         if (
-          actualType &&
-          actualType._tag === 'TupleType' &&
-          actualType.rest &&
-          actualType.rest.length > 0
+          propSig.type &&
+          propSig.type._tag === 'TupleType' &&
+          propSig.type.rest &&
+          propSig.type.rest.length > 0
         ) {
           // Extract description for the array itself
-          if (actualType.annotations) {
-            Object.getOwnPropertySymbols(actualType.annotations).forEach(
+          if (propSig.type.annotations) {
+            Object.getOwnPropertySymbols(propSig.type.annotations).forEach(
               (symbol) => {
                 if (symbol.description === 'effect/annotation/Description') {
-                  const description = actualType.annotations[symbol]
+                  const description = propSig.type.annotations[symbol]
                   if (description) {
                     descriptions[fullPath] = description
                   }
@@ -376,7 +371,7 @@ function extractSchemaAnnotations(
           }
 
           // Process the array element type
-          const elementType = actualType.rest[0]?.type
+          const elementType = propSig.type.rest[0]?.type
           if (elementType && elementType._tag === 'TypeLiteral') {
             const nestedDescriptions = extractSchemaAnnotations(
               elementType,
@@ -504,32 +499,30 @@ function generateFormFieldsFromSchema(
           actualType.rest.length > 0
         ) {
           const elementType = actualType.rest[0]?.type
-          let children: Record<string, FormFieldDefinition> = {}
-
           if (elementType && elementType._tag === 'TypeLiteral') {
-            // For array elements that are structs, generate children with simple keys (not full paths)
-            children = generateFormFieldsFromSchema(elementType, '')
-          } else if (elementType) {
-            // For arrays of primitives, create a single field for the array elements
-            const elementFieldType = getSchemaFieldType(elementType)
-            if (elementFieldType !== 'unknown') {
-              children = {
-                value: {
-                  key: 'value',
-                  label: 'Value',
-                  type: elementFieldType,
-                  required: true, // Array elements are typically required
-                },
-              }
+            // For array elements, generate children with simple keys (not full paths)
+            const children = generateFormFieldsFromSchema(elementType, '')
+
+            fields[fullPath] = {
+              key: fullPath,
+              label: formatLabel(keyName),
+              type: 'array',
+              required: isRequired,
+              children,
             }
           }
-
-          fields[fullPath] = {
-            key: fullPath,
-            label: formatLabel(keyName),
-            type: 'array',
-            required: isRequired,
-            children,
+        }
+        // Handle Union types (like discriminated unions)
+        else if (actualType && actualType._tag === 'Union') {
+          const children = generateUnionFields(actualType, fullPath)
+          if (Object.keys(children).length > 0) {
+            fields[fullPath] = {
+              key: fullPath,
+              label: formatLabel(keyName),
+              type: 'object',
+              required: isRequired,
+              children,
+            }
           }
         }
         // Handle regular object types
@@ -604,6 +597,175 @@ function getActualType(typeAst: any): any {
   }
 }
 
+// Get the literal value from a type, handling optional fields
+function getLiteralValue(typeAst: any): any {
+  try {
+    if (!typeAst) return null
+
+    // Direct literal
+    if (typeAst._tag === 'Literal') {
+      return typeAst.literal
+    }
+
+    // Handle Union types (optional fields)
+    if (typeAst._tag === 'Union' && Array.isArray(typeAst.types)) {
+      const nonUndefinedTypes = typeAst.types.filter(
+        (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+      )
+      if (
+        nonUndefinedTypes.length === 1 &&
+        nonUndefinedTypes[0]._tag === 'Literal'
+      ) {
+        return nonUndefinedTypes[0].literal
+      }
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
+// Detect if a union is discriminated (has a common discriminant field like "type")
+function isDiscriminatedUnion(unionAst: any): boolean {
+  try {
+    if (
+      !unionAst ||
+      unionAst._tag !== 'Union' ||
+      !Array.isArray(unionAst.types)
+    ) {
+      return false
+    }
+
+    const memberTypes = unionAst.types.filter(
+      (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+    )
+
+    // Check if all members are TypeLiterals with a common discriminant field
+    if (memberTypes.every((t: any) => t._tag === 'TypeLiteral')) {
+      // Look for a common field that could be a discriminant (like "type")
+      const discriminantFields = ['type', 'kind', 'variant']
+
+      for (const discriminant of discriminantFields) {
+        const values = memberTypes
+          .map((member: any) => {
+            const prop = member.propertySignatures?.find(
+              (p: any) => p.name === discriminant
+            )
+            return prop ? getLiteralValue(prop.type) : null
+          })
+          .filter(Boolean)
+
+        // If all members have this discriminant field with different literal values, it's discriminated
+        if (
+          values.length === memberTypes.length &&
+          new Set(values).size === values.length
+        ) {
+          return true
+        }
+      }
+    }
+
+    return false
+  } catch {
+    return false
+  }
+}
+
+// Generate form fields for discriminated Union types
+function generateDiscriminatedUnionFields(
+  unionAst: any,
+  path: string
+): Record<string, FormFieldDefinition> {
+  const fields: Record<string, FormFieldDefinition> = {}
+
+  try {
+    if (
+      !unionAst ||
+      unionAst._tag !== 'Union' ||
+      !Array.isArray(unionAst.types)
+    ) {
+      return fields
+    }
+
+    const memberTypes = unionAst.types.filter(
+      (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+    )
+
+    // Generate conditional fields for each member type
+    memberTypes.forEach((memberType: any) => {
+      if (memberType._tag === 'TypeLiteral') {
+        const memberFields = generateFormFieldsFromSchema(memberType, path)
+        // Add each member field with a condition based on the type
+        const typeProp = memberType.propertySignatures?.find(
+          (p: any) => p.name === 'type'
+        )
+        const typeValue = typeProp ? getLiteralValue(typeProp.type) : null
+
+        Object.keys(memberFields).forEach((key) => {
+          // Skip the type field itself as we'll handle selection in the UI
+          if (!key.endsWith('.type')) {
+            const conditionalField: FormFieldDefinition = {
+              ...memberFields[key],
+            }
+            // Add condition for when this field should be shown
+            conditionalField.condition = {
+              field: path ? `${path}.type` : 'type',
+              value: typeValue,
+            }
+            fields[key] = conditionalField
+          }
+        })
+      }
+    })
+  } catch {
+    // Silently handle errors
+  }
+
+  return fields
+}
+
+// Generate form fields for Union types by merging all possible fields from union members
+function generateUnionFields(
+  unionAst: any,
+  path: string
+): Record<string, FormFieldDefinition> {
+  // First check if it's a discriminated union
+  if (isDiscriminatedUnion(unionAst)) {
+    return generateDiscriminatedUnionFields(unionAst, path)
+  }
+
+  // Fallback to merging all fields (old behavior)
+  const fields: Record<string, FormFieldDefinition> = {}
+
+  try {
+    if (
+      !unionAst ||
+      unionAst._tag !== 'Union' ||
+      !Array.isArray(unionAst.types)
+    ) {
+      return fields
+    }
+
+    // Process each type in the union (excluding undefined/void for optional fields)
+    const memberTypes = unionAst.types.filter(
+      (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+    )
+
+    memberTypes.forEach((memberType: any) => {
+      if (memberType._tag === 'TypeLiteral') {
+        const memberFields = generateFormFieldsFromSchema(memberType, path)
+        // Merge fields from this union member
+        Object.assign(fields, memberFields)
+      }
+    })
+  } catch {
+    // Silently handle errors
+  }
+
+  return fields
+}
+
 // Get field type from schema AST
 function getSchemaFieldType(
   typeAst: any
@@ -638,6 +800,10 @@ function getSchemaFieldType(
         return 'object'
       case 'TupleType':
         return 'array'
+      case 'Union':
+        // Handle Union types by treating them as objects
+        // This will allow the schema generation to create fields for union members
+        return 'object'
       default:
         return 'unknown'
     }

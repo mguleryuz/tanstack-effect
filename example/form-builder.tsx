@@ -1,28 +1,25 @@
+// @ts-nocheck
+
+'use client'
+
 import { useState } from 'react'
 import { formatLabel, getNestedValue } from 'tanstack-effect'
 import type {
   FormBuilderProps,
   FormFieldProps,
   NestedFormProps,
-} from 'tanstack-effect/client'
-
-const Input = null as any
-const Textarea = null as any
-const Switch = null as any
-const Label = null as any
-const Card = null as any
-const CardContent = null as any
-const CardHeader = null as any
-const CardTitle = null as any
-const Button = null as any
-const Badge = null as any
-const cn = null as any
-const ChevronDown = null as any
-const ChevronRight = null as any
-const Info = null as any
-const Circle = null as any
-const Plus = null as any
-const Trash2 = null as any
+  FormFieldDefinition,
+  UseSchemaFormReturn,
+} from 'tanstack-effect'
+import { Input } from './ui/input'
+import { cn } from '@/lib/utils'
+import { Button } from './ui/button'
+import { ChevronDown, ChevronRight, Info, Plus, Trash2, Circle } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
+import { Badge } from './ui/badge'
+import { Label } from './ui/label'
+import { Switch } from './ui/switch'
+import { Textarea } from './ui/textarea'
 
 /**
  * Individual form field component
@@ -36,7 +33,7 @@ function FormField({ field, value, onChange, error }: FormFieldProps) {
         return (
           <Textarea
             value={value || ''}
-            onChange={(e: any) => onChange(e.target.value)}
+            onChange={(e) => onChange(e.target.value)}
             className={cn(error && 'border-red-500')}
           />
         )
@@ -49,7 +46,7 @@ function FormField({ field, value, onChange, error }: FormFieldProps) {
             step={field.step}
             min={field.min}
             max={field.max}
-            onChange={(e: any) => {
+            onChange={(e) => {
               const inputValue = e.target.value
               if (inputValue === '') {
                 onChange(0)
@@ -66,9 +63,7 @@ function FormField({ field, value, onChange, error }: FormFieldProps) {
         return (
           <div className="flex items-center space-x-2">
             <Switch checked={Boolean(value)} onCheckedChange={onChange} />
-            <span className="text-muted-foreground text-sm">
-              {value ? 'Enabled' : 'Disabled'}
-            </span>
+            <span className="text-muted-foreground text-sm">{value ? 'Enabled' : 'Disabled'}</span>
           </div>
         )
 
@@ -82,14 +77,9 @@ function FormField({ field, value, onChange, error }: FormFieldProps) {
       <div className="flex min-w-0 flex-1 items-start gap-2">
         <Label
           htmlFor={field.key}
-          className={cn(
-            'min-w-0 flex-1 text-xs sm:text-sm',
-            field.required && 'font-semibold'
-          )}
+          className={cn('min-w-0 flex-1 text-xs sm:text-sm', field.required && 'font-semibold')}
         >
-          <span className="break-words">
-            {field.label || formatLabel(field.key)}
-          </span>
+          <span className="break-words">{field.label || formatLabel(field.key)}</span>
           {field.required ? (
             <span className="text-red-500">*</span>
           ) : (
@@ -109,9 +99,7 @@ function FormField({ field, value, onChange, error }: FormFieldProps) {
       </div>
 
       {showDescription && field.description && (
-        <p className="text-muted-foreground border-t text-xs sm:text-sm">
-          {field.description}
-        </p>
+        <p className="text-muted-foreground border-t text-xs sm:text-sm">{field.description}</p>
       )}
 
       <div className="w-full">{renderField()}</div>
@@ -150,23 +138,118 @@ function createDefaultItem(children: Record<string, any>) {
 }
 
 /**
- * Recursive form section component for objects and arrays
+ * Discriminated union section component
  */
-function FormSection<T = any>({
+function DiscriminatedUnionSection({
   field,
   form,
   basePath,
-  level = 0,
-  initialCollapsed = false,
-}: NestedFormProps<T>) {
-  const [isCollapsed, setIsCollapsed] = useState(
-    level > 2 ? true : initialCollapsed
-  )
+}: {
+  field: FormFieldDefinition
+  form: UseSchemaFormReturn<any>
+  basePath: string
+}) {
+  const [selectedType, setSelectedType] = useState<string>('')
 
   if (!field.children) return null
 
-  const sectionValue =
-    getNestedValue(form.data, basePath) || (field.type === 'array' ? [] : {})
+  // Get union type options and their fields
+  const unionTypes = Object.entries(field.children)
+    .filter(([, childField]) => (childField as FormFieldDefinition).condition)
+    .reduce(
+      (acc, [, childField]) => {
+        const condition = (childField as FormFieldDefinition).condition!
+        if (!acc[condition.value]) {
+          acc[condition.value] = []
+        }
+        acc[condition.value].push(childField as FormFieldDefinition)
+        return acc
+      },
+      {} as Record<string, FormFieldDefinition[]>
+    )
+
+  const typeOptions = Object.keys(unionTypes)
+
+  const handleTypeChange = (newType: string) => {
+    setSelectedType(newType)
+
+    // Clear fields from other union variants
+    Object.entries(field.children || {}).forEach(([key, childField]) => {
+      const typedChildField = childField as FormFieldDefinition
+      if (typedChildField.condition && typedChildField.condition.value !== newType) {
+        const fullPath = basePath ? `${basePath}.${key}` : key
+        form.updateField(fullPath, undefined)
+      }
+    })
+  }
+
+  return (
+    <Card className="border-l-4 border-l-primary">
+      <CardHeader>
+        <CardTitle className="text-sm sm:text-base">
+          {field.label || formatLabel(field.key)}
+          {field.description && <p className="text-muted-foreground mt-2 text-xs sm:text-sm">{field.description}</p>}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Type Selection */}
+        <div className="space-y-2">
+          <Label className="text-xs sm:text-sm font-semibold">Fee Configuration Type</Label>
+          <div className="flex flex-wrap gap-2">
+            {typeOptions.map((option) => (
+              <Button
+                key={option}
+                type="button"
+                variant={selectedType === option ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleTypeChange(option)}
+                className="capitalize"
+              >
+                {option}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {/* Conditional Fields */}
+        {selectedType && unionTypes[selectedType] && (
+          <div className="space-y-3">
+            {unionTypes[selectedType].map((conditionalField) => {
+              const fullPath = basePath ? `${basePath}.${conditionalField.key}` : conditionalField.key
+              const value = getNestedValue(form.data, fullPath)
+
+              return (
+                <FormField
+                  key={fullPath}
+                  field={conditionalField}
+                  value={value}
+                  onChange={(value) => form.updateField(fullPath, value)}
+                  error={form.validationErrors[fullPath]}
+                />
+              )
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Recursive form section component for objects and arrays
+ */
+function FormSection<T = any>({ field, form, basePath, level = 0, initialCollapsed = false }: NestedFormProps<T>) {
+  const [isCollapsed, setIsCollapsed] = useState(level > 2 ? true : initialCollapsed)
+
+  if (!field.children) return null
+
+  // Check if this is a discriminated union (has children with conditions)
+  const hasConditionalChildren = Object.values(field.children).some((child) => child.condition)
+  if (hasConditionalChildren) {
+    return <DiscriminatedUnionSection field={field} form={form} basePath={basePath} />
+  }
+
+  const sectionValue = getNestedValue(form.data, basePath) || (field.type === 'array' ? [] : {})
   const isArray = field.type === 'array'
   const isRoot = level === 0
 
@@ -177,25 +260,24 @@ function FormSection<T = any>({
   }
 
   const removeItem = (index: number) => {
-    const newArray = (sectionValue as any[]).filter(
-      (_: any, i: number) => i !== index
-    )
+    const newArray = (sectionValue as any[]).filter((_: any, i: number) => i !== index)
     form.updateField(basePath, newArray)
   }
 
-  const renderChildren = (
-    children: Record<string, any>,
-    parentValue: any,
-    parentPath: string,
-    itemIndex?: number
-  ) => {
+  const renderChildren = (children: Record<string, any>, parentValue: any, parentPath: string, itemIndex?: number) => {
     return Object.entries(children)
       .sort(([, a], [, b]) => a.key.localeCompare(b.key))
       .map(([key, childField]) => {
-        const fullPath =
-          itemIndex !== undefined
-            ? `${parentPath}[${itemIndex}].${key}`
-            : childField.key
+        // Check if field has a condition and evaluate it
+        if (childField.condition) {
+          const { field: conditionField, value: expectedValue } = childField.condition
+          const conditionValue = getNestedValue(form.data, conditionField)
+          if (conditionValue !== expectedValue) {
+            return null // Don't render this field
+          }
+        }
+
+        const fullPath = itemIndex !== undefined ? `${parentPath}[${itemIndex}].${key}` : childField.key
         const fieldName = key.split('.').pop() || key
         const childValue = getNestedValue(parentValue, fieldName)
 
@@ -222,21 +304,16 @@ function FormSection<T = any>({
           />
         )
       })
+      .filter(Boolean) // Remove null entries from conditional rendering
   }
 
   const headerContent = (
     <>
       <div className="flex items-center justify-between">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          {isCollapsed ? (
-            <ChevronRight className="h-4 w-4 shrink-0" />
-          ) : (
-            <ChevronDown className="h-4 w-4 shrink-0" />
-          )}
+          {isCollapsed ? <ChevronRight className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
           <CardTitle className="min-w-0 flex-1 text-sm sm:text-base">
-            <span className="truncate">
-              {field.label || formatLabel(field.key)}
-            </span>
+            <span className="truncate">{field.label || formatLabel(field.key)}</span>
             {isArray && (
               <Badge variant="outline" className="ml-2 text-xs">
                 {(sectionValue as any[]).length} items
@@ -253,7 +330,7 @@ function FormSection<T = any>({
           <Button
             variant="outline"
             size="sm"
-            onClick={(e: any) => {
+            onClick={(e) => {
               e.stopPropagation()
               addItem()
             }}
@@ -264,11 +341,7 @@ function FormSection<T = any>({
           </Button>
         )}
       </div>
-      {field.description && (
-        <p className="text-muted-foreground mt-2 text-xs sm:text-sm">
-          {field.description}
-        </p>
-      )}
+      {field.description && <p className="text-muted-foreground mt-2 text-xs sm:text-sm">{field.description}</p>}
     </>
   )
 
@@ -302,34 +375,18 @@ function FormSection<T = any>({
       </div>
     )
   ) : (
-    <div className="grid gap-3 sm:gap-4">
-      {renderChildren(field.children!, sectionValue, basePath)}
-    </div>
+    <div className="grid gap-3 sm:gap-4">{renderChildren(field.children!, sectionValue, basePath)}</div>
   )
 
   return (
     <Card
-      className={cn(
-        'border-l-4',
-        isRoot
-          ? isArray
-            ? 'border-l-green-500'
-            : 'border-l-primary'
-          : 'border-l-accent'
-      )}
+      className={cn('border-l-4', isRoot ? (isArray ? 'border-l-green-500' : 'border-l-primary') : 'border-l-accent')}
     >
-      <CardHeader
-        className="cursor-pointer pb-0 gap-0"
-        onClick={() => setIsCollapsed(!isCollapsed)}
-      >
+      <CardHeader className="cursor-pointer pb-0 gap-0" onClick={() => setIsCollapsed(!isCollapsed)}>
         {headerContent}
       </CardHeader>
 
-      {!isCollapsed && (
-        <CardContent className="space-y-3 p-3 sm:space-y-4 sm:p-6 pt-0">
-          {content}
-        </CardContent>
-      )}
+      {!isCollapsed && <CardContent className="space-y-3 p-3 sm:space-y-4 sm:p-6 pt-0">{content}</CardContent>}
     </Card>
   )
 }
@@ -346,73 +403,88 @@ export function FormBuilder<T = any>({
 }: FormBuilderProps<T>) {
   const [isCollapsed, setIsCollapsed] = useState(initialCollapsed)
 
-  const rootFields = Object.entries(form.fields).filter(
-    ([, field]) => !field.key.includes('.')
-  )
+  const calculateFieldComplexity = (field: FormFieldDefinition) => {
+    if (field.type === 'object' || field.type === 'array') {
+      return 1
+    }
+    return 0
+  }
+
+  const rootFields = Object.entries(form.fields)
+    .filter(([, field]) => !field.key.includes('.'))
+    .sort(([, a], [, b]) => calculateFieldComplexity(a) - calculateFieldComplexity(b))
 
   const content = (
     <div className="space-y-4 sm:space-y-6">
-      {rootFields.map(([key, field]) => {
-        const value = getNestedValue(form.data, key)
+      {
+        rootFields
+          .map(([key, field]) => {
+            // Check if field has a condition and evaluate it
+            if (field.condition) {
+              const { field: conditionField, value: expectedValue } = field.condition
+              const conditionValue = getNestedValue(form.data, conditionField)
+              if (conditionValue !== expectedValue) {
+                return null // Don't render this field
+              }
+            }
 
-        if (field.type === 'object' || field.type === 'array') {
-          return (
-            <FormSection
-              key={field.key}
-              field={field}
-              form={form}
-              basePath={key}
-              level={0}
-              initialCollapsed={initialCollapsed}
-            />
-          )
-        }
+            // Check if this is a discriminated union (has children with conditions)
+            const hasConditionalChildren =
+              field.children && Object.values(field.children).some((child) => child.condition)
+            if (hasConditionalChildren) {
+              return <DiscriminatedUnionSection key={field.key} field={field} form={form} basePath={key} />
+            }
 
-        return (
-          <FormField
-            key={field.key}
-            field={field}
-            value={value}
-            onChange={(value) => form.updateField(key, value)}
-            error={form.validationErrors[key]}
-          />
-        )
-      })}
+            if (field.type === 'object' || field.type === 'array') {
+              return (
+                <FormSection
+                  key={field.key}
+                  field={field}
+                  form={form}
+                  basePath={key}
+                  level={0}
+                  initialCollapsed={initialCollapsed}
+                />
+              )
+            }
+
+            const value = getNestedValue(form.data, key)
+            return (
+              <FormField
+                key={field.key}
+                field={field}
+                value={value}
+                onChange={(value) => form.updateField(key, value)}
+                error={form.validationErrors[key]}
+              />
+            )
+          })
+          .filter(Boolean) /* Remove null entries from conditional rendering */
+      }
     </div>
   )
 
   if (collapsible && title) {
     return (
       <Card className={className}>
-        <CardHeader
-          className="cursor-pointer p-3 sm:p-6 pb-0 gap-0"
-          onClick={() => setIsCollapsed(!isCollapsed)}
-        >
+        <CardHeader className="cursor-pointer p-3 sm:p-6 pb-0 gap-0" onClick={() => setIsCollapsed(!isCollapsed)}>
           <div className="flex min-w-0 items-center">
             {isCollapsed ? (
               <ChevronRight className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
             ) : (
               <ChevronDown className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
             )}
-            <CardTitle className="min-w-0 flex-1 truncate text-base sm:text-lg">
-              {title}
-            </CardTitle>
+            <CardTitle className="min-w-0 flex-1 truncate text-base sm:text-lg">{title}</CardTitle>
           </div>
         </CardHeader>
-        {!isCollapsed && (
-          <CardContent className="p-3 sm:p-6 pt-0">{content}</CardContent>
-        )}
+        {!isCollapsed && <CardContent className="p-3 sm:p-6 pt-0">{content}</CardContent>}
       </Card>
     )
   }
 
   return (
     <div className={className}>
-      {title && (
-        <h3 className="mb-3 text-base font-semibold sm:mb-4 sm:text-lg">
-          {title}
-        </h3>
-      )}
+      {title && <h3 className="mb-3 text-base font-semibold sm:mb-4 sm:text-lg">{title}</h3>}
       {content}
     </div>
   )

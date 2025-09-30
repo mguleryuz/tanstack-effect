@@ -10,6 +10,9 @@ import {
   setNestedValue,
 } from '../schema-form'
 
+// Re-export types
+export type { FormFieldDefinition }
+
 export interface UseSchemaFormOptions<T> {
   schema: Schema.Schema<T>
   initialData?: T | null
