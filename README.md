@@ -42,8 +42,8 @@ The library is designed for a typed server-client workflow using Effect's `HttpA
 
 <!-- BEGIN:client -->
 ```tsx
-// You need to import the server file for the routes to register in runtime
-import './server'
+// You need to import the shared file for the routes to register in runtime
+import './shared'
 
 import {
   useEffectMutation,
@@ -52,7 +52,7 @@ import {
 } from 'tanstack-effect/client'
 
 import { FormBuilder } from './form-builder'
-import { UserSchema } from './server'
+import { UserSchema } from './shared'
 
 export default function Page() {
   const user = useEffectQuery(
@@ -133,9 +133,9 @@ Using the example `FormBuilder` UI:
 
 This lets you infer form fields directly from your schema without maintaining separate field configs.
 
-2. Define your API on the server and generate the client type
+2. Define your API on the shared file and generate the client type
 
-<!-- BEGIN:server -->
+<!-- BEGIN:shared -->
 ```ts
 import { HttpApi, HttpApiEndpoint, HttpApiGroup } from '@effect/platform'
 import { Schema } from 'effect'
@@ -196,7 +196,7 @@ export class TanstackEffectClient extends getTanstackEffectClient(Api) {}
 
 export type TTanstackEffectClient = TanstackEffectClient['client']
 ```
-<!-- END:server -->
+<!-- END:shared -->
 
 3. Augment the `tanstack-effect` client interface in a `.d.ts`
 
@@ -204,7 +204,7 @@ Place a declaration file accessible to your app (e.g. `src/types/tanstack-effect
 
 <!-- BEGIN:d.ts -->
 ```ts
-import type { TTanstackEffectClient as Client } from './server'
+import type { TTanstackEffectClient as Client } from './shared'
 
 declare module 'tanstack-effect' {
   interface TTanstackEffectClient extends Client {}
@@ -282,7 +282,7 @@ export default app
 import { OpenApi } from '@effect/platform'
 
 // Importing TanstackEffectClient to mirror real-world usage where this is the API import equivalent
-import { Api } from './server'
+import { Api } from './shared'
 
 // Mock Hono class / for demonstration purposes
 class Hono {

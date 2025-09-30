@@ -1,7 +1,7 @@
 import { OpenApi } from '@effect/platform'
 
 // Importing TanstackEffectClient to mirror real-world usage where this is the API import equivalent
-import { Api } from './server'
+import { Api } from './shared'
 
 // Mock Hono class / for demonstration purposes
 class Hono {

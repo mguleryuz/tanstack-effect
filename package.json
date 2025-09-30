@@ -20,8 +20,8 @@
     "dist"
   ],
   "scripts": {
-    "watch": "tsc -w",
-    "type-check": "tsc --pretty",
+    "watch": "tsgo --pretty -w",
+    "type-check": "tsgo --pretty",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
     "lint": "eslint .",
     "fill-placeholders": "sh ./script/fill-placeholders.sh",
@@ -40,10 +40,8 @@
     "release:pub": "git push --follow-tags origin $(git rev-parse --abbrev-ref HEAD)"
   },
   "lint-staged": {
-    "src/**/*.{ts,tsx,d.ts}": [
-      "tsc-files --pretty --project ./tsconfig.types.json --noEmit"
-    ],
     "src/**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,css}": [
+      "tsgo --pretty --noEmit",
       "eslint --fix",
       "prettier --write"
     ]
@@ -77,7 +75,7 @@
     "standard-version": "^9.5.0",
     "ts-add-js-extension": "^1.6.6",
     "tsc-alias": "^1.8.16",
-    "tsc-files": "^1.1.4",
+    "typescript": "^",
     "typescript-eslint": "^8.44.0"
   },
   "homepage": "https://github.com/mguleryuz/tanstack-effect",

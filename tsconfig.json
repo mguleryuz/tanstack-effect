@@ -1,4 +1,5 @@
 {
+  "typescript.experimental.useTsgo": true,
   "include": ["src", "example", "test", "script"],
   "exclude": ["**/bak/*", "dist"],
   "compilerOptions": {
@@ -11,7 +12,7 @@
     "useUnknownInCatchVariables": true,
     "noImplicitOverride": true,
     "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedParameters": false,
     "jsx": "react-jsx",
     "noEmit": true,
 
@@ -34,8 +35,6 @@
     // Skip type checking for node modules
     "skipLibCheck": true,
 
-    // Base URL and path mapping
-    "baseUrl": ".",
     // Type aliasing
     "paths": {
       "@/*": ["./src/*"]

@@ -1,14 +1,14 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-type Section = 'client' | 'server' | 'd.ts' | 'openapi' | 'user'
+type Section = 'client' | 'shared' | 'd.ts' | 'openapi' | 'user'
 
 const pkgRoot = resolve(__dirname, '..')
 const readmePath = resolve(pkgRoot, 'README.md')
 
 const sectionToFile: Record<Section, { path: string; lang: string }> = {
   client: { path: resolve(pkgRoot, 'example', 'client.tsx'), lang: 'tsx' },
-  server: { path: resolve(pkgRoot, 'example', 'server.ts'), lang: 'ts' },
+  shared: { path: resolve(pkgRoot, 'example', 'shared.ts'), lang: 'ts' },
   'd.ts': {
     path: resolve(pkgRoot, 'example', 'tanstack-effect.d.ts'),
     lang: 'ts',

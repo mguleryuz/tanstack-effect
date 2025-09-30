@@ -1,5 +1,5 @@
-// You need to import the server file for the routes to register in runtime
-import './server'
+// You need to import the shared file for the routes to register in runtime
+import './shared'
 
 import {
   useEffectMutation,
@@ -8,7 +8,7 @@ import {
 } from 'tanstack-effect/client'
 
 import { FormBuilder } from './form-builder'
-import { UserSchema } from './server'
+import { UserSchema } from './shared'
 
 export default function Page() {
   const user = useEffectQuery(
