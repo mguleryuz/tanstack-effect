@@ -487,7 +487,8 @@ function generateFormFieldsFromSchema(
         const keyName = propSig.name
         const fullPath = path ? `${path}.${keyName}` : keyName
 
-        // Check if field is required (not in a Union with UndefinedKeyword)
+        // Check if field is required by examining the type structure
+        // If the type is a Union that includes UndefinedKeyword, it's optional
         const isRequired = !isUnionWithUndefined(propSig.type)
 
         // Get the actual type, handling Union types (optional fields)
@@ -899,9 +900,26 @@ function mergeSchemaFields(
   Object.keys(schemaFields).forEach((key) => {
     if (!dataFields[key]) {
       dataFields[key] = schemaFields[key]
-    } else if (dataFields[key].children && schemaFields[key].children) {
+    } else {
+      // Update existing field with schema information
+      const dataField = dataFields[key]
+      const schemaField = schemaFields[key]
+
+      // Copy schema properties that might be missing from data fields
+      if (schemaField.required !== undefined) {
+        dataField.required = schemaField.required
+      }
+      if (schemaField.literalOptions) {
+        dataField.literalOptions = schemaField.literalOptions
+      }
+      // Add other schema-specific properties as needed
+
       // Recursively merge children
-      mergeSchemaFields(dataFields[key].children!, schemaFields[key].children!)
+      if (dataField.children && schemaField.children) {
+        mergeSchemaFields(dataField.children, schemaField.children!)
+      } else if (schemaField.children) {
+        dataField.children = schemaField.children
+      }
     }
   })
 }
