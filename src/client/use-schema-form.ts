@@ -46,6 +46,7 @@ export interface FormFieldProps {
   value: any
   onChange: (value: any) => void
   error?: string
+  minimal?: boolean
 }
 
 export interface NestedFormProps<T = any> {
