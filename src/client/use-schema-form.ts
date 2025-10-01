@@ -55,6 +55,7 @@ export interface NestedFormProps<T = any> {
   basePath: string
   level?: number
   initialCollapsed?: boolean
+  minimal?: boolean
 }
 
 export function useSchemaForm<T>({
