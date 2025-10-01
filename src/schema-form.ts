@@ -515,6 +515,23 @@ function generateFormFieldsFromSchema(
             }
           }
         }
+        // Handle Union of Literals FIRST (before discriminated unions)
+        else if (
+          actualType &&
+          actualType._tag === 'Union' &&
+          isUnionOfLiterals(actualType)
+        ) {
+          const literalOptions = getLiteralOptions(actualType)
+          if (literalOptions.length > 0) {
+            fields[fullPath] = {
+              key: fullPath,
+              label: formatLabel(keyName),
+              type: 'literal',
+              required: isRequired,
+              literalOptions,
+            }
+          }
+        }
         // Handle Union types (like discriminated unions)
         else if (actualType && actualType._tag === 'Union') {
           const children = generateUnionFields(actualType, fullPath)
@@ -544,6 +561,7 @@ function generateFormFieldsFromSchema(
         // Handle primitive types
         else if (actualType) {
           const fieldType = getSchemaFieldType(actualType)
+
           if (fieldType !== 'unknown') {
             const fieldDef: FormFieldDefinition = {
               key: fullPath,
@@ -597,11 +615,26 @@ function getActualType(typeAst: any): any {
 
     // Handle Union types (optional fields)
     if (typeAst._tag === 'Union' && Array.isArray(typeAst.types)) {
-      // Find the non-undefined type in the union
-      const nonUndefinedType = typeAst.types.find(
+      // Filter out undefined/void types
+      const nonUndefinedTypes = typeAst.types.filter(
         (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
       )
-      return nonUndefinedType || typeAst
+
+      // If there's only one non-undefined type, return it directly
+      if (nonUndefinedTypes.length === 1) {
+        return nonUndefinedTypes[0]
+      }
+
+      // If there are multiple non-undefined types (e.g., union of literals),
+      // return a reconstructed union without the undefined types
+      if (nonUndefinedTypes.length > 1) {
+        return {
+          ...typeAst,
+          types: nonUndefinedTypes,
+        }
+      }
+
+      return typeAst
     }
 
     return typeAst
@@ -905,6 +938,12 @@ function mergeSchemaFields(
       const dataField = dataFields[key]
       const schemaField = schemaFields[key]
 
+      // Schema type takes precedence over data-inferred type
+      // (e.g., literal union should override inferred string type)
+      if (schemaField.type) {
+        dataField.type = schemaField.type
+      }
+
       // Copy schema properties that might be missing from data fields
       if (schemaField.required !== undefined) {
         dataField.required = schemaField.required
@@ -912,7 +951,21 @@ function mergeSchemaFields(
       if (schemaField.literalOptions) {
         dataField.literalOptions = schemaField.literalOptions
       }
-      // Add other schema-specific properties as needed
+      if (schemaField.label) {
+        dataField.label = schemaField.label
+      }
+      if (schemaField.description) {
+        dataField.description = schemaField.description
+      }
+      if (schemaField.min !== undefined) {
+        dataField.min = schemaField.min
+      }
+      if (schemaField.max !== undefined) {
+        dataField.max = schemaField.max
+      }
+      if (schemaField.step !== undefined) {
+        dataField.step = schemaField.step
+      }
 
       // Recursively merge children
       if (dataField.children && schemaField.children) {
