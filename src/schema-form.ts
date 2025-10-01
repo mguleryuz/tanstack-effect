@@ -321,8 +321,33 @@ function extractSchemaAnnotations(
 
         const fullPath = path ? `${path}.${keyName}` : keyName
 
+        // Extract description from property signature annotations (highest priority)
+        if (propSig.annotations) {
+          Object.getOwnPropertySymbols(propSig.annotations).forEach(
+            (symbol) => {
+              if (symbol.description === 'effect/annotation/Description') {
+                const description = propSig.annotations[symbol]
+                // Only add meaningful descriptions (not generic ones like "a number")
+                if (
+                  description &&
+                  description !== 'a number' &&
+                  description !== 'a string' &&
+                  description !== 'a boolean'
+                ) {
+                  descriptions[fullPath] = description
+                }
+              }
+            }
+          )
+        }
+
         // Extract description from property type annotations using Symbols
-        if (propSig.type && propSig.type.annotations) {
+        // First try to get annotations from the type itself (if not already set)
+        if (
+          propSig.type &&
+          propSig.type.annotations &&
+          !descriptions[fullPath]
+        ) {
           // Effect Schema uses Symbol keys for annotations
           Object.getOwnPropertySymbols(propSig.type.annotations).forEach(
             (symbol) => {
@@ -342,28 +367,97 @@ function extractSchemaAnnotations(
           )
         }
 
+        // For optional fields (Union types), also check annotations on the wrapped type
+        if (
+          propSig.type &&
+          propSig.type._tag === 'Union' &&
+          Array.isArray(propSig.type.types)
+        ) {
+          const nonUndefinedTypes = propSig.type.types.filter(
+            (t: any) =>
+              t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+          )
+          if (
+            nonUndefinedTypes.length === 1 &&
+            nonUndefinedTypes[0].annotations
+          ) {
+            Object.getOwnPropertySymbols(
+              nonUndefinedTypes[0].annotations
+            ).forEach((symbol) => {
+              if (symbol.description === 'effect/annotation/Description') {
+                const description = nonUndefinedTypes[0].annotations[symbol]
+                // Only add meaningful descriptions (not generic ones like "a number")
+                if (
+                  description &&
+                  description !== 'a number' &&
+                  description !== 'a string' &&
+                  description !== 'a boolean' &&
+                  !descriptions[fullPath] // Don't override if already set
+                ) {
+                  descriptions[fullPath] = description
+                }
+              }
+            })
+          }
+        }
+
         // Recursively process nested structures
-        if (propSig.type && propSig.type._tag === 'TypeLiteral') {
+        // First unwrap Union types (from Schema.optional) to get the actual type
+        let actualNestedType = propSig.type
+        if (
+          propSig.type &&
+          propSig.type._tag === 'Union' &&
+          Array.isArray(propSig.type.types)
+        ) {
+          const nonUndefinedTypes = propSig.type.types.filter(
+            (t: any) =>
+              t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+          )
+          if (nonUndefinedTypes.length === 1) {
+            actualNestedType = nonUndefinedTypes[0]
+          }
+        }
+
+        if (actualNestedType && actualNestedType._tag === 'TypeLiteral') {
           const nestedDescriptions = extractSchemaAnnotations(
-            propSig.type,
+            actualNestedType,
             fullPath
           )
           Object.assign(descriptions, nestedDescriptions)
         }
 
         // Handle arrays (TupleType with rest elements)
+        // First unwrap Union types (from Schema.optional) for arrays too
+        let actualArrayType = propSig.type
         if (
           propSig.type &&
-          propSig.type._tag === 'TupleType' &&
-          propSig.type.rest &&
-          propSig.type.rest.length > 0
+          propSig.type._tag === 'Union' &&
+          Array.isArray(propSig.type.types)
+        ) {
+          const nonUndefinedTypes = propSig.type.types.filter(
+            (t: any) =>
+              t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+          )
+          if (
+            nonUndefinedTypes.length === 1 &&
+            nonUndefinedTypes[0]._tag === 'TupleType'
+          ) {
+            actualArrayType = nonUndefinedTypes[0]
+          }
+        }
+
+        if (
+          actualArrayType &&
+          actualArrayType._tag === 'TupleType' &&
+          actualArrayType.rest &&
+          actualArrayType.rest.length > 0
         ) {
           // Extract description for the array itself
-          if (propSig.type.annotations) {
-            Object.getOwnPropertySymbols(propSig.type.annotations).forEach(
+          if (actualArrayType.annotations) {
+            Object.getOwnPropertySymbols(actualArrayType.annotations).forEach(
               (symbol) => {
                 if (symbol.description === 'effect/annotation/Description') {
-                  const description = propSig.type.annotations[symbol]
+                  const description = actualArrayType.annotations[symbol]
                   if (description) {
                     descriptions[fullPath] = description
                   }
@@ -373,7 +467,7 @@ function extractSchemaAnnotations(
           }
 
           // Process the array element type
-          const elementType = propSig.type.rest[0]?.type
+          const elementType = actualArrayType.rest[0]?.type
           if (elementType && elementType._tag === 'TypeLiteral') {
             const nestedDescriptions = extractSchemaAnnotations(
               elementType,
@@ -383,6 +477,32 @@ function extractSchemaAnnotations(
           }
         }
       })
+    }
+
+    // Handle Union types (from Schema.optional and other union constructs)
+    if (ast._tag === 'Union' && Array.isArray(ast.types)) {
+      // Extract annotations from the union itself first
+      if (ast.annotations) {
+        Object.getOwnPropertySymbols(ast.annotations).forEach((symbol) => {
+          if (symbol.description === 'effect/annotation/Description' && path) {
+            descriptions[path] = ast.annotations[symbol]
+          }
+        })
+      }
+
+      // Extract from the actual types (excluding undefined/void)
+      const nonUndefinedTypes = ast.types.filter(
+        (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+      )
+
+      // If there's only one non-undefined type, recursively extract from it
+      if (nonUndefinedTypes.length === 1) {
+        const unionDescriptions = extractSchemaAnnotations(
+          nonUndefinedTypes[0],
+          path
+        )
+        Object.assign(descriptions, unionDescriptions)
+      }
     }
 
     // Handle Refinement types (like Schema.String.pipe(Schema.pattern(...)))

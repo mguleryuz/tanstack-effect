@@ -4,55 +4,48 @@ All notable changes to this project will be documented in this file. See [standa
 
 ### [0.0.11](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.10...v0.0.11) (2025-09-30)
 
-
 ### Features
 
-* add support for discriminated unions in form generation and improve type handling ([c570353](https://github.com/mguleryuz/tanstack-effect/commit/c570353196c11a2b3f370a20298a6d3b532cc1e7))
-* refactor API structure to use shared file and update related documentation ([f7ed002](https://github.com/mguleryuz/tanstack-effect/commit/f7ed0028b09ad5ed19538ba0a759cee2854a8cda))
+- add support for discriminated unions in form generation and improve type handling ([c570353](https://github.com/mguleryuz/tanstack-effect/commit/c570353196c11a2b3f370a20298a6d3b532cc1e7))
+- refactor API structure to use shared file and update related documentation ([f7ed002](https://github.com/mguleryuz/tanstack-effect/commit/f7ed0028b09ad5ed19538ba0a759cee2854a8cda))
 
 ### [0.0.10](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.9...v0.0.10) (2025-09-28)
 
 ### [0.0.9](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.8...v0.0.9) (2025-09-28)
 
-
 ### Features
 
-* enhance form handling with array support and improve nested form components ([6953931](https://github.com/mguleryuz/tanstack-effect/commit/69539311501ae9c160a3daafc62783a33a7c8c94))
+- enhance form handling with array support and improve nested form components ([6953931](https://github.com/mguleryuz/tanstack-effect/commit/69539311501ae9c160a3daafc62783a33a7c8c94))
 
 ### [0.0.8](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.7...v0.0.8) (2025-09-19)
 
-
 ### Features
 
-* implement user routes and update README with new API documentation ([c3dd449](https://github.com/mguleryuz/tanstack-effect/commit/c3dd4495456369e003f75fd8e8ad90e9c4ae81dc))
+- implement user routes and update README with new API documentation ([c3dd449](https://github.com/mguleryuz/tanstack-effect/commit/c3dd4495456369e003f75fd8e8ad90e9c4ae81dc))
 
 ### [0.0.7](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.6...v0.0.7) (2025-09-19)
 
-
 ### Features
 
-* add OpenAPI documentation setup and update README with new section ([5544335](https://github.com/mguleryuz/tanstack-effect/commit/5544335265b1c60c993c713afb8fa29fded50d9e))
+- add OpenAPI documentation setup and update README with new section ([5544335](https://github.com/mguleryuz/tanstack-effect/commit/5544335265b1c60c993c713afb8fa29fded50d9e))
 
 ### [0.0.6](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.5...v0.0.6) (2025-09-18)
 
-
 ### Features
 
-* enhance README with code examples and add script for automatic injection of sections ([0664280](https://github.com/mguleryuz/tanstack-effect/commit/066428085c5b6821b5f41c70ec16960d989409a9))
+- enhance README with code examples and add script for automatic injection of sections ([0664280](https://github.com/mguleryuz/tanstack-effect/commit/066428085c5b6821b5f41c70ec16960d989409a9))
 
 ### [0.0.5](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.4...v0.0.5) (2025-09-18)
 
-
 ### Features
 
-* refactor form components and add schema-form module for improved form handling ([af392ae](https://github.com/mguleryuz/tanstack-effect/commit/af392aef9b97a754a65422621f7fe826860103a8))
+- refactor form components and add schema-form module for improved form handling ([af392ae](https://github.com/mguleryuz/tanstack-effect/commit/af392aef9b97a754a65422621f7fe826860103a8))
 
 ### [0.0.4](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.3...v0.0.4) (2025-09-18)
 
-
 ### Features
 
-* add useSchemaForm hook and FormBuilder component for schema-driven forms ([6941b85](https://github.com/mguleryuz/tanstack-effect/commit/6941b85d1f8b0eda499b89f6150d84e13875e534))
+- add useSchemaForm hook and FormBuilder component for schema-driven forms ([6941b85](https://github.com/mguleryuz/tanstack-effect/commit/6941b85d1f8b0eda499b89f6150d84e13875e534))
 
 ### [0.0.3](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.2...v0.0.3) (2025-09-18)
 
