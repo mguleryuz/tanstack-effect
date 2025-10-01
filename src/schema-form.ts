@@ -2,7 +2,7 @@
 export interface FormFieldDefinition {
   key: string
   label?: string
-  type: 'string' | 'number' | 'boolean' | 'object' | 'array'
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'literal'
   description?: string
   required?: boolean
   min?: number
@@ -12,6 +12,8 @@ export interface FormFieldDefinition {
   children?: Record<string, FormFieldDefinition>
   // For discriminated unions
   condition?: { field: string; value: any }
+  // For literal types
+  literalOptions?: any[]
 }
 
 // Helper to format field labels from keys
@@ -252,7 +254,7 @@ function getNumberMinMax(
 // Determine field type from value
 function getFieldType(
   value: any
-): 'string' | 'number' | 'boolean' | 'object' | 'array' {
+): 'string' | 'number' | 'boolean' | 'object' | 'array' | 'literal' {
   if (value === null || value === undefined) {
     return 'string'
   }
@@ -542,12 +544,22 @@ function generateFormFieldsFromSchema(
         else if (actualType) {
           const fieldType = getSchemaFieldType(actualType)
           if (fieldType !== 'unknown') {
-            fields[fullPath] = {
+            const fieldDef: FormFieldDefinition = {
               key: fullPath,
               label: formatLabel(keyName),
               type: fieldType,
               required: isRequired,
             }
+
+            // Add literal options if this is a literal field
+            if (fieldType === 'literal') {
+              const literalOptions = getLiteralOptions(actualType)
+              if (literalOptions.length > 0) {
+                fieldDef.literalOptions = literalOptions
+              }
+            }
+
+            fields[fullPath] = fieldDef
           }
         }
       })
@@ -623,6 +635,57 @@ function getLiteralValue(typeAst: any): any {
     return null
   } catch {
     return null
+  }
+}
+
+// Check if a union type consists only of literal values
+function isUnionOfLiterals(unionAst: any): boolean {
+  try {
+    if (
+      !unionAst ||
+      unionAst._tag !== 'Union' ||
+      !Array.isArray(unionAst.types)
+    ) {
+      return false
+    }
+
+    const nonUndefinedTypes = unionAst.types.filter(
+      (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+    )
+
+    // All types must be literals
+    return nonUndefinedTypes.every((t: any) => t._tag === 'Literal')
+  } catch {
+    return false
+  }
+}
+
+// Extract literal options from a union of literals or a single literal
+function getLiteralOptions(typeAst: any): any[] {
+  try {
+    if (!typeAst) return []
+
+    const actualType = getActualType(typeAst)
+
+    // Single literal
+    if (actualType._tag === 'Literal') {
+      return [actualType.literal]
+    }
+
+    // Union of literals
+    if (actualType._tag === 'Union' && Array.isArray(actualType.types)) {
+      const literals = actualType.types
+        .filter(
+          (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+        )
+        .filter((t: any) => t._tag === 'Literal')
+        .map((t: any) => t.literal)
+      return literals
+    }
+
+    return []
+  } catch {
+    return []
   }
 }
 
@@ -769,7 +832,14 @@ function generateUnionFields(
 // Get field type from schema AST
 function getSchemaFieldType(
   typeAst: any
-): 'string' | 'number' | 'boolean' | 'object' | 'array' | 'unknown' {
+):
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'object'
+  | 'array'
+  | 'literal'
+  | 'unknown' {
   try {
     if (!typeAst) return 'unknown'
 
@@ -789,6 +859,11 @@ function getSchemaFieldType(
       return getSchemaFieldType(actualType.to)
     }
 
+    // Handle Literal types
+    if (tag === 'Literal') {
+      return 'literal'
+    }
+
     switch (tag) {
       case 'StringKeyword':
         return 'string'
@@ -801,6 +876,10 @@ function getSchemaFieldType(
       case 'TupleType':
         return 'array'
       case 'Union':
+        // Check if this is a union of literals (should be treated as literal select)
+        if (isUnionOfLiterals(actualType)) {
+          return 'literal'
+        }
         // Handle Union types by treating them as objects
         // This will allow the schema generation to create fields for union members
         return 'object'

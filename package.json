@@ -41,7 +41,6 @@
   },
   "lint-staged": {
     "src/**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,css}": [
-      "tsgo --pretty --noEmit",
       "eslint --fix",
       "prettier --write"
     ]

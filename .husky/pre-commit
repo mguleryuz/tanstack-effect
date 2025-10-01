@@ -1,3 +1,4 @@
+bunx tsgo --pretty --noEmit
 bun script/inject-readme.ts
 git add README.md
 bunx lint-staged
