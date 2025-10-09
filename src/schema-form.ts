@@ -301,6 +301,38 @@ function extractSchemaAnnotations(
     // Try to access the AST directly
     const ast = schema.ast || schema
 
+    // Handle Transformation types (from .pipe()) at the top level first
+    if (ast._tag === 'Transformation' && ast.from) {
+      // Extract annotations from the transformation itself first
+      if (ast.annotations) {
+        Object.getOwnPropertySymbols(ast.annotations).forEach((symbol) => {
+          if (symbol.description === 'effect/annotation/Description' && path) {
+            descriptions[path] = ast.annotations[symbol]
+          }
+        })
+      }
+      // Then recursively extract from the 'from' field
+      const transformedDescriptions = extractSchemaAnnotations(ast.from, path)
+      Object.assign(descriptions, transformedDescriptions)
+      return descriptions
+    }
+
+    // Handle Refinement types (from .pipe(Schema.filter())) at the top level first
+    if (ast._tag === 'Refinement' && ast.from) {
+      // Extract annotations from the refinement itself first
+      if (ast.annotations) {
+        Object.getOwnPropertySymbols(ast.annotations).forEach((symbol) => {
+          if (symbol.description === 'effect/annotation/Description' && path) {
+            descriptions[path] = ast.annotations[symbol]
+          }
+        })
+      }
+      // Then recursively extract from the 'from' field
+      const refinedDescriptions = extractSchemaAnnotations(ast.from, path)
+      Object.assign(descriptions, refinedDescriptions)
+      return descriptions
+    }
+
     // Get annotations from the current level
     if (ast.annotations) {
       // Effect Schema uses Symbol keys for annotations
@@ -598,6 +630,16 @@ function generateFormFieldsFromSchema(
     if (!schema) return fields
 
     const ast = schema.ast || schema
+
+    // Handle Transformation types (from .pipe()) - unwrap to get the 'from' schema
+    if (ast._tag === 'Transformation' && ast.from) {
+      return generateFormFieldsFromSchema(ast.from, path)
+    }
+
+    // Handle Refinement types (from .pipe(Schema.filter())) - unwrap to get the 'from' schema
+    if (ast._tag === 'Refinement' && ast.from) {
+      return generateFormFieldsFromSchema(ast.from, path)
+    }
 
     // Handle TypeLiteral (Struct) types
     if (ast._tag === 'TypeLiteral' && Array.isArray(ast.propertySignatures)) {
