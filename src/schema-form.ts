@@ -931,6 +931,61 @@ function isDiscriminatedUnion(unionAst: any): boolean {
   }
 }
 
+// Get discriminant field name and values from a discriminated union
+function getDiscriminantInfo(unionAst: any): {
+  discriminantField: string
+  values: Array<{ value: any; memberType: any }>
+} | null {
+  try {
+    if (
+      !unionAst ||
+      unionAst._tag !== 'Union' ||
+      !Array.isArray(unionAst.types)
+    ) {
+      return null
+    }
+
+    const memberTypes = unionAst.types.filter(
+      (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+    )
+
+    // Check if all members are TypeLiterals
+    if (!memberTypes.every((t: any) => t._tag === 'TypeLiteral')) {
+      return null
+    }
+
+    // Look for a common field that could be a discriminant (like "type")
+    const discriminantFields = ['type', 'kind', 'variant']
+
+    for (const discriminant of discriminantFields) {
+      const values = memberTypes
+        .map((member: any) => {
+          const prop = member.propertySignatures?.find(
+            (p: any) => p.name === discriminant
+          )
+          const value = prop ? getLiteralValue(prop.type) : null
+          return value !== null ? { value, memberType: member } : null
+        })
+        .filter(Boolean)
+
+      // If all members have this discriminant field with different literal values, it's discriminated
+      if (
+        values.length === memberTypes.length &&
+        new Set(values.map((v: any) => v.value)).size === values.length
+      ) {
+        return {
+          discriminantField: discriminant,
+          values: values as Array<{ value: any; memberType: any }>,
+        }
+      }
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
 // Generate form fields for discriminated Union types
 function generateDiscriminatedUnionFields(
   unionAst: any,
@@ -939,41 +994,45 @@ function generateDiscriminatedUnionFields(
   const fields: Record<string, FormFieldDefinition> = {}
 
   try {
-    if (
-      !unionAst ||
-      unionAst._tag !== 'Union' ||
-      !Array.isArray(unionAst.types)
-    ) {
+    const discriminantInfo = getDiscriminantInfo(unionAst)
+    if (!discriminantInfo) {
       return fields
     }
 
-    const memberTypes = unionAst.types.filter(
-      (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
-    )
+    const { discriminantField, values } = discriminantInfo
+    const discriminantPath = path
+      ? `${path}.${discriminantField}`
+      : discriminantField
+
+    // Add the discriminant field itself as a literal selector
+    fields[discriminantPath] = {
+      key: discriminantPath,
+      label: formatLabel(discriminantField),
+      type: 'literal',
+      required: true,
+      literalOptions: values.map((v) => v.value),
+    }
 
     // Generate conditional fields for each member type
-    memberTypes.forEach((memberType: any) => {
+    values.forEach(({ value: typeValue, memberType }) => {
       if (memberType._tag === 'TypeLiteral') {
         const memberFields = generateFormFieldsFromSchema(memberType, path)
-        // Add each member field with a condition based on the type
-        const typeProp = memberType.propertySignatures?.find(
-          (p: any) => p.name === 'type'
-        )
-        const typeValue = typeProp ? getLiteralValue(typeProp.type) : null
 
         Object.keys(memberFields).forEach((key) => {
-          // Skip the type field itself as we'll handle selection in the UI
-          if (!key.endsWith('.type')) {
-            const conditionalField: FormFieldDefinition = {
-              ...memberFields[key],
-            }
-            // Add condition for when this field should be shown
-            conditionalField.condition = {
-              field: path ? `${path}.type` : 'type',
-              value: typeValue,
-            }
-            fields[key] = conditionalField
+          // Skip the discriminant field itself as we already added it
+          if (key === discriminantPath) {
+            return
           }
+
+          const conditionalField: FormFieldDefinition = {
+            ...memberFields[key],
+          }
+          // Add condition for when this field should be shown
+          conditionalField.condition = {
+            field: discriminantPath,
+            value: typeValue,
+          }
+          fields[key] = conditionalField
         })
       }
     })
@@ -1112,6 +1171,9 @@ function mergeSchemaFields(
       }
       if (schemaField.literalOptions) {
         dataField.literalOptions = schemaField.literalOptions
+      }
+      if (schemaField.condition) {
+        dataField.condition = schemaField.condition
       }
       if (schemaField.label) {
         dataField.label = schemaField.label
