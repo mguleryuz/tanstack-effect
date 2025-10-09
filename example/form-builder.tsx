@@ -1,7 +1,10 @@
 // @ts-nocheck
 'use client'
 
+import { cn } from '@/utils'
 import {
+  AlertCircle,
+  CheckCircle,
   ChevronDown,
   ChevronRight,
   Circle,
@@ -19,8 +22,7 @@ import type {
   UseSchemaFormReturn,
 } from 'tanstack-effect'
 
-import { cn } from '@/lib/utils'
-
+import { Alert, AlertDescription, AlertTitle } from './ui/alert'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
@@ -47,6 +49,11 @@ export function FormField({
   minimal = false,
 }: FormFieldProps) {
   const [showDescription, setShowDescription] = useState(true)
+
+  // Guard against undefined field
+  if (!field) {
+    return null
+  }
 
   const I = minimal ? Input : Textarea
 
@@ -121,10 +128,7 @@ export function FormField({
               </SelectTrigger>
               <SelectContent position="item-aligned" className="h-max w-max">
                 {!field.required && (
-                  <SelectItem
-                    value="__clear__"
-                    className="text-muted-foreground italic"
-                  >
+                  <SelectItem value="__clear__" className="italic">
                     (None)
                   </SelectItem>
                 )}
@@ -171,6 +175,8 @@ export function FormField({
             size="sm"
             className="h-auto shrink-0 p-1"
             onClick={() => setShowDescription(!showDescription)}
+            tabIndex={-1}
+            aria-label="Show description"
           >
             <Info className="h-3 w-3" />
           </Button>
@@ -187,6 +193,66 @@ export function FormField({
 
       {error && <div className="text-xs text-red-500 sm:text-sm">{error}</div>}
     </div>
+  )
+}
+
+/**
+ * Form validation status alert component
+ */
+export interface FormValidationAlertProps<T = any> {
+  form: UseSchemaFormReturn<T>
+  requiredFields: Array<{ key: string; label: string }>
+}
+
+export function FormValidationAlert<T = any>({
+  form,
+  requiredFields,
+}: FormValidationAlertProps<T>) {
+  // Check which required fields are missing
+  const missingFields = requiredFields.filter(({ key }) => {
+    const value = getNestedValue(form.data, key)
+    return !value || (typeof value === 'string' && value.trim() === '')
+  })
+
+  // Get root-level validation errors (from Schema.filter or general validation)
+  const rootError = form.validationErrors['_root']
+
+  const isValid = missingFields.length === 0 && !rootError
+
+  return (
+    <>
+      {rootError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{rootError}</AlertDescription>
+        </Alert>
+      )}
+      <Alert>
+        <AlertTitle>Form Validation</AlertTitle>
+        <AlertDescription className="flex items-center gap-2">
+          {isValid ? (
+            <>
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              All required fields completed.
+            </>
+          ) : (
+            <>
+              <AlertCircle className="h-4 w-4 text-amber-600" />
+              <span>
+                {missingFields.length > 0 ? (
+                  <>
+                    Please complete required fields:
+                    {missingFields.map((field) => ` ${field.label}`).join(',')}
+                  </>
+                ) : (
+                  'Please review the errors above.'
+                )}
+              </span>
+            </>
+          )}
+        </AlertDescription>
+      </Alert>
+    </>
   )
 }
 
@@ -232,6 +298,8 @@ export function DiscriminatedUnionSection({
 }) {
   const [selectedType, setSelectedType] = useState<string>('')
 
+  // Guard against undefined field
+  if (!field) return null
   if (!field.children) return null
 
   // Get union type options and their fields
@@ -283,7 +351,7 @@ export function DiscriminatedUnionSection({
         {/* Type Selection */}
         <div className="space-y-2">
           <Label className="text-xs sm:text-sm font-semibold">
-            Fee Configuration Type
+            {field.label || formatLabel(field.key)}
           </Label>
           <div className="flex flex-wrap gap-2">
             {typeOptions.map((option) => (
@@ -342,6 +410,8 @@ export function FormSection<T = any>({
     level > 2 ? true : initialCollapsed
   )
 
+  // Guard against undefined field
+  if (!field) return null
   if (!field.children) return null
 
   // Check if this is a discriminated union (has children with conditions)
@@ -576,8 +646,17 @@ export function FormBuilder<T = any>({
         calculateFieldComplexity(a) - calculateFieldComplexity(b)
     )
 
+  // Get root-level validation errors (from Schema.filter or general validation)
+  const rootError = form.validationErrors['_root']
+
   const content = (
     <div className="space-y-4 sm:space-y-6">
+      {rootError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{rootError}</AlertDescription>
+        </Alert>
+      )}
       {
         rootFields
           .map(([key, field]) => {

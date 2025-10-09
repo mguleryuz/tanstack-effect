@@ -73,6 +73,83 @@ export function useSchemaForm<T>({
     return generateFormFieldsWithSchemaAnnotations(data ?? {}, schema)
   }, [data, schema])
 
+  /**
+   * Parse Effect Schema error messages into human-readable format
+   */
+  const parseEffectSchemaError = React.useCallback(
+    (message: string): string => {
+      // Extract the last meaningful error message from nested structure
+      // Look for "Expected X, actual Y" pattern
+      const expectedActualMatch = message.match(
+        /Expected ([^,]+), actual (.+?)(?:\n|$)/i
+      )
+      if (expectedActualMatch) {
+        const [, expected, actual] = expectedActualMatch
+        const cleanExpected = expected.trim()
+        const cleanActual = actual.trim().replace(/^"(.*)"$/, '$1') // Remove quotes
+
+        // Handle empty string case
+        if (cleanActual === '' || cleanActual === '""') {
+          return `${cleanExpected} is required`
+        }
+
+        return `Expected ${cleanExpected}, but got: ${cleanActual}`
+      }
+
+      // Look for refinement failure messages
+      const refinementMatch = message.match(
+        /Predicate refinement failure[^\n]*\n[^\n]*Expected ([^,\n]+)/i
+      )
+      if (refinementMatch) {
+        const [, expected] = refinementMatch
+        return expected.trim()
+      }
+
+      // Look for filter failure messages - try to extract the meaningful part
+      const filterMatch = message.match(
+        /filter[^\n]*\n[^\n]*└─ From side refinement failure[^\n]*\n[^\n]*└─[^\n]*\n[^\n]*└─ \["([^"]+)"\][^\n]*\n[^\n]*└─ ([^\n]+)/i
+      )
+      if (filterMatch) {
+        const [, fieldName, fieldError] = filterMatch
+        return `${fieldName}: ${fieldError.trim()}`
+      }
+
+      // Extract the last line that has actual content (often the most specific error)
+      const lines = message
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+      const lastMeaningfulLine = lines[lines.length - 1]
+
+      // Skip technical prefixes
+      if (
+        lastMeaningfulLine &&
+        !lastMeaningfulLine.startsWith('└─') &&
+        !lastMeaningfulLine.includes('failure')
+      ) {
+        return lastMeaningfulLine
+      }
+
+      // If we can't parse it better, try to clean up the message
+      const cleanMessage = message
+        .replace(/\n/g, ' ')
+        .replace(/└─/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+      // If still too technical, return a generic message
+      if (
+        cleanMessage.length > 200 ||
+        cleanMessage.includes('refinement failure')
+      ) {
+        return 'Invalid value - please check the field'
+      }
+
+      return cleanMessage
+    },
+    []
+  )
+
   const validateData = React.useCallback(
     (dataToValidate?: T): boolean => {
       const targetData = dataToValidate || data
@@ -90,18 +167,29 @@ export function useSchemaForm<T>({
         const errors: Record<string, string> = {}
         if (error.errors) {
           error.errors.forEach((err: any) => {
-            const path = err.path?.join('.') || 'unknown'
-            errors[path] = err.message || 'Invalid value'
+            // Handle empty or missing paths (common with Schema.filter errors)
+            const pathArray = err.path || []
+            const path = pathArray.length > 0 ? pathArray.join('.') : '_root'
+
+            // Parse and simplify the error message
+            const humanMessage = parseEffectSchemaError(
+              err.message || 'Invalid value'
+            )
+            errors[path] = humanMessage
           })
         } else {
-          errors['general'] = error.message || 'Validation failed'
+          // Fallback for errors without errors array
+          const humanMessage = parseEffectSchemaError(
+            error.message || 'Validation failed'
+          )
+          errors['_root'] = humanMessage
         }
         setValidationErrors(errors)
         onValidationChange?.(errors)
         return false
       }
     },
-    [data, schema, onValidationChange]
+    [data, schema, onValidationChange, parseEffectSchemaError]
   )
 
   const updateField = React.useCallback(
