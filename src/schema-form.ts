@@ -14,6 +14,7 @@ export interface FormFieldDefinition {
   condition?: { field: string; value: any }
   // For literal types
   literalOptions?: any[]
+  literalOptionsDescriptions?: Record<string, string>
 }
 
 // Helper to format field labels from keys
@@ -934,7 +935,7 @@ function isDiscriminatedUnion(unionAst: any): boolean {
 // Get discriminant field name and values from a discriminated union
 function getDiscriminantInfo(unionAst: any): {
   discriminantField: string
-  values: Array<{ value: any; memberType: any }>
+  values: Array<{ value: any; memberType: any; description?: string }>
 } | null {
   try {
     if (
@@ -964,7 +965,22 @@ function getDiscriminantInfo(unionAst: any): {
             (p: any) => p.name === discriminant
           )
           const value = prop ? getLiteralValue(prop.type) : null
-          return value !== null ? { value, memberType: member } : null
+
+          // Extract description from member annotations
+          let description: string | undefined
+          if (member.annotations) {
+            Object.getOwnPropertySymbols(member.annotations).forEach(
+              (symbol) => {
+                if (symbol.description === 'effect/annotation/Description') {
+                  description = member.annotations[symbol]
+                }
+              }
+            )
+          }
+
+          return value !== null
+            ? { value, memberType: member, description }
+            : null
         })
         .filter(Boolean)
 
@@ -975,7 +991,11 @@ function getDiscriminantInfo(unionAst: any): {
       ) {
         return {
           discriminantField: discriminant,
-          values: values as Array<{ value: any; memberType: any }>,
+          values: values as Array<{
+            value: any
+            memberType: any
+            description?: string
+          }>,
         }
       }
     }
@@ -1004,6 +1024,14 @@ function generateDiscriminatedUnionFields(
       ? `${path}.${discriminantField}`
       : discriminantField
 
+    // Build descriptions map for literal options
+    const literalOptionsDescriptions: Record<string, string> = {}
+    values.forEach(({ value, description }) => {
+      if (description) {
+        literalOptionsDescriptions[String(value)] = description
+      }
+    })
+
     // Add the discriminant field itself as a literal selector
     fields[discriminantPath] = {
       key: discriminantPath,
@@ -1011,6 +1039,10 @@ function generateDiscriminatedUnionFields(
       type: 'literal',
       required: true,
       literalOptions: values.map((v) => v.value),
+      literalOptionsDescriptions:
+        Object.keys(literalOptionsDescriptions).length > 0
+          ? literalOptionsDescriptions
+          : undefined,
     }
 
     // Generate conditional fields for each member type
@@ -1171,6 +1203,10 @@ function mergeSchemaFields(
       }
       if (schemaField.literalOptions) {
         dataField.literalOptions = schemaField.literalOptions
+      }
+      if (schemaField.literalOptionsDescriptions) {
+        dataField.literalOptionsDescriptions =
+          schemaField.literalOptionsDescriptions
       }
       if (schemaField.condition) {
         dataField.condition = schemaField.condition
