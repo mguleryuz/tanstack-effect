@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.12](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.11...v0.0.12) (2025-10-10)
+
+
+### Features
+
+* add form validation alert component and improve error message parsing for better user feedback ([2218fd9](https://github.com/mguleryuz/tanstack-effect/commit/2218fd9f8dce809bc36e136870d07b888a34eea1))
+* add minimal prop to FormFieldProps interface for enhanced customization ([e3972c8](https://github.com/mguleryuz/tanstack-effect/commit/e3972c8e6617dae7c8f865d0aabc803405f31867))
+* add minimal prop to NestedFormProps interface for improved form customization ([ba5249b](https://github.com/mguleryuz/tanstack-effect/commit/ba5249b649d2a5a610d2e916dc11bc5e0835fc94))
+* add support for descriptions in discriminated union values and enhance literal options handling in form field generation ([0aa117c](https://github.com/mguleryuz/tanstack-effect/commit/0aa117cc065a71d9f6818caccbbf45b1e94d2c26))
+* add support for literal types in form field definitions and enhance type handling ([1dd06d1](https://github.com/mguleryuz/tanstack-effect/commit/1dd06d116351da1f418f5524991420ba1f62bbdf))
+* enhance form field generation to support union of literals and improve type merging ([cbc5e06](https://github.com/mguleryuz/tanstack-effect/commit/cbc5e060486da9787d1e65e5c1ef991c93ae179d))
+* enhance schema annotation extraction and form field generation to support Transformation and Refinement types ([244aea2](https://github.com/mguleryuz/tanstack-effect/commit/244aea29ee22ef3e6cea06554f016f64686aa641))
+* enhance schema annotations extraction to support descriptions from union types and improve type handling ([2c45921](https://github.com/mguleryuz/tanstack-effect/commit/2c45921b6ab67b024f638056aded31805c26b01a))
+* enhance schema field merging to support missing properties and improve type handling ([32c8a4a](https://github.com/mguleryuz/tanstack-effect/commit/32c8a4af93fa976ea17bc3e93245ba42cf847181))
+* refactor discriminated union handling in form field generation to improve type detection and conditional rendering ([dae9b7a](https://github.com/mguleryuz/tanstack-effect/commit/dae9b7a8c8d82311cde1444acdfe8a51a145d7c5))
+
 ### [0.0.11](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.10...v0.0.11) (2025-09-30)
 
 ### Features
