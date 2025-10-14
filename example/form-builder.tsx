@@ -1,53 +1,40 @@
 // @ts-nocheck
 'use client'
 
-import { cn } from '@/utils'
-import {
-  AlertCircle,
-  CheckCircle,
-  ChevronDown,
-  ChevronRight,
-  Circle,
-  Info,
-  Plus,
-  Trash2,
-} from 'lucide-react'
 import { useState } from 'react'
 import { formatLabel, getNestedValue } from 'tanstack-effect'
 import type {
   FormBuilderProps,
-  FormFieldDefinition,
   FormFieldProps,
   NestedFormProps,
+  FormFieldDefinition,
   UseSchemaFormReturn,
 } from 'tanstack-effect'
-
-import { Alert, AlertDescription, AlertTitle } from './ui/alert'
-import { Badge } from './ui/badge'
-import { Button } from './ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Input } from './ui/input'
-import { Label } from './ui/label'
+import { cn } from '@/utils'
+import { Button } from './ui/button'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from './ui/select'
+  ChevronDown,
+  ChevronRight,
+  Info,
+  Plus,
+  Trash2,
+  Circle,
+  AlertCircle,
+  CheckCircle,
+} from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
+import { Badge } from './ui/badge'
+import { Label } from './ui/label'
 import { Switch } from './ui/switch'
 import { Textarea } from './ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
+import { Alert, AlertDescription, AlertTitle } from './ui/alert'
 
 /**
  * Individual form field component
  */
-export function FormField({
-  field,
-  value,
-  onChange,
-  error,
-  minimal = false,
-}: FormFieldProps) {
+export function FormField({ field, value, onChange, error, minimal = false }: FormFieldProps) {
   const [showDescription, setShowDescription] = useState(true)
 
   // Guard against undefined field
@@ -93,9 +80,7 @@ export function FormField({
         return (
           <div className="flex items-center space-x-2">
             <Switch checked={Boolean(value)} onCheckedChange={onChange} />
-            <span className="text-muted-foreground text-sm">
-              {value ? 'Enabled' : 'Disabled'}
-            </span>
+            <span className="text-muted-foreground text-sm">{value ? 'Enabled' : 'Disabled'}</span>
           </div>
         )
 
@@ -116,14 +101,10 @@ export function FormField({
                   (option) => option?.toString() === selectedValue
                 )
                 // Always use the original option value to preserve type
-                onChange(
-                  selectedOption !== undefined ? selectedOption : selectedValue
-                )
+                onChange(selectedOption !== undefined ? selectedOption : selectedValue)
               }}
             >
-              <SelectTrigger
-                className={cn('flex-1', error && 'border-red-500')}
-              >
+              <SelectTrigger className={cn('flex-1', error && 'border-red-500')}>
                 <SelectValue placeholder="Select an option..." />
               </SelectTrigger>
               <SelectContent position="item-aligned" className="h-max w-max">
@@ -133,10 +114,7 @@ export function FormField({
                   </SelectItem>
                 )}
                 {(field.literalOptions || []).map((option) => (
-                  <SelectItem
-                    key={option?.toString()}
-                    value={option?.toString()}
-                  >
+                  <SelectItem key={option?.toString()} value={option?.toString()}>
                     {option?.toString()}
                   </SelectItem>
                 ))}
@@ -155,14 +133,9 @@ export function FormField({
       <div className="flex min-w-0 flex-1 items-start gap-2">
         <Label
           htmlFor={field.key}
-          className={cn(
-            'min-w-0 flex-1 text-xs sm:text-sm',
-            field.required && 'font-semibold'
-          )}
+          className={cn('min-w-0 flex-1 text-xs sm:text-sm', field.required && 'font-semibold')}
         >
-          <span className="break-words">
-            {field.label || formatLabel(field.key)}
-          </span>
+          <span className="break-words">{field.label || formatLabel(field.key)}</span>
           {field.required ? (
             <span className="text-red-500">*</span>
           ) : (
@@ -184,9 +157,7 @@ export function FormField({
       </div>
 
       {showDescription && field.description && (
-        <p className="text-muted-foreground border-t text-xs sm:text-sm">
-          {field.description}
-        </p>
+        <p className="text-muted-foreground border-t text-xs sm:text-sm">{field.description}</p>
       )}
 
       <div className="w-full">{renderField()}</div>
@@ -197,19 +168,79 @@ export function FormField({
 }
 
 /**
+ * Helper to recursively collect all required fields from form schema
+ */
+function collectRequiredFields(
+  fields: Record<string, FormFieldDefinition>,
+  data: any
+): Array<{ key: string; label: string }> {
+  const required: Array<{ key: string; label: string }> = []
+
+  Object.entries(fields).forEach(([, field]) => {
+    if (!field) return
+
+    // Skip fields with conditions that don't match current data
+    if (field.condition) {
+      const conditionValue = getNestedValue(data, field.condition.field)
+      if (conditionValue !== field.condition.value) {
+        return // Skip this field as its condition isn't met
+      }
+    }
+
+    // Add required non-object/array fields
+    if (field.required && field.type !== 'object' && field.type !== 'array') {
+      required.push({
+        key: field.key,
+        label: field.label || formatLabel(field.key),
+      })
+    }
+
+    // Recursively check children only if the parent field is not optional or has content
+    if (field.children) {
+      const fieldValue = getNestedValue(data, field.key)
+
+      // For arrays: only check children if array is required OR has items
+      if (field.type === 'array') {
+        const isArrayPopulated = Array.isArray(fieldValue) && fieldValue.length > 0
+        if (!field.required && !isArrayPopulated) {
+          return // Skip checking children of optional empty arrays
+        }
+      }
+
+      // For objects: only check children if object is required OR has content
+      if (field.type === 'object') {
+        const isObjectPopulated =
+          fieldValue && typeof fieldValue === 'object' && Object.keys(fieldValue).length > 0
+        if (!field.required && !isObjectPopulated) {
+          return // Skip checking children of optional empty objects
+        }
+      }
+
+      const childRequired = collectRequiredFields(field.children, data)
+      required.push(...childRequired)
+    }
+  })
+
+  return required
+}
+
+/**
  * Form validation status alert component
  */
 export interface FormValidationAlertProps<T = any> {
   form: UseSchemaFormReturn<T>
-  requiredFields: Array<{ key: string; label: string }>
+  requiredFields?: Array<{ key: string; label: string }>
 }
 
 export function FormValidationAlert<T = any>({
   form,
   requiredFields,
 }: FormValidationAlertProps<T>) {
+  // Auto-collect required fields from schema if not provided
+  const fieldsToCheck = requiredFields || collectRequiredFields(form.fields, form.data)
+
   // Check which required fields are missing
-  const missingFields = requiredFields.filter(({ key }) => {
+  const missingFields = fieldsToCheck.filter(({ key }) => {
     const value = getNestedValue(form.data, key)
     return !value || (typeof value === 'string' && value.trim() === '')
   })
@@ -220,39 +251,35 @@ export function FormValidationAlert<T = any>({
   const isValid = missingFields.length === 0 && !rootError
 
   return (
-    <>
-      {rootError && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{rootError}</AlertDescription>
-        </Alert>
-      )}
-      <Alert>
-        <AlertTitle>Form Validation</AlertTitle>
-        <AlertDescription className="flex items-center gap-2">
-          {isValid ? (
-            <>
-              <CheckCircle className="h-4 w-4 text-green-600" />
-              All required fields completed.
-            </>
-          ) : (
-            <>
-              <AlertCircle className="h-4 w-4 text-amber-600" />
-              <span>
-                {missingFields.length > 0 ? (
-                  <>
-                    Please complete required fields:
-                    {missingFields.map((field) => ` ${field.label}`).join(',')}
-                  </>
-                ) : (
-                  'Please review the errors above.'
-                )}
-              </span>
-            </>
-          )}
-        </AlertDescription>
-      </Alert>
-    </>
+    <Alert>
+      <AlertTitle>Form Validation</AlertTitle>
+      <AlertDescription>
+        {isValid ? (
+          <div className="flex items-center gap-2">
+            <CheckCircle className="h-4 w-4 text-green-600" />
+            All required fields completed.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {missingFields.length > 0 && (
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />
+                <span>
+                  Please complete required fields:
+                  {missingFields.map((field) => ` ${field.label}`).join(',')}
+                </span>
+              </div>
+            )}
+            {rootError && (
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-red-600" />
+                <span>{rootError}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </AlertDescription>
+    </Alert>
   )
 }
 
@@ -290,21 +317,34 @@ export function createDefaultItem(children: Record<string, any>) {
 export function DiscriminatedUnionSection({
   field,
   form,
-  basePath,
+  minimal = false,
 }: {
   field: FormFieldDefinition
   form: UseSchemaFormReturn<any>
-  basePath: string
+  minimal?: boolean
 }) {
-  const [selectedType, setSelectedType] = useState<string>('')
-
   // Guard against undefined field
   if (!field) return null
   if (!field.children) return null
 
+  // Find the discriminant field (usually 'type')
+  const discriminantEntry = Object.entries(field.children).find(
+    ([, childField]) =>
+      (childField as FormFieldDefinition).type === 'literal' &&
+      !(childField as FormFieldDefinition).condition
+  )
+
+  if (!discriminantEntry) return null
+
+  const [discriminantKey, discriminantField] = discriminantEntry as [string, FormFieldDefinition]
+  const discriminantPath = discriminantKey
+
   // Get union type options and their fields
   const unionTypes = Object.entries(field.children)
-    .filter(([, childField]) => (childField as FormFieldDefinition).condition)
+    .filter(
+      ([key, childField]) =>
+        key !== discriminantKey && (childField as FormFieldDefinition).condition
+    )
     .reduce(
       (acc, [, childField]) => {
         const condition = (childField as FormFieldDefinition).condition!
@@ -317,20 +357,21 @@ export function DiscriminatedUnionSection({
       {} as Record<string, FormFieldDefinition[]>
     )
 
-  const typeOptions = Object.keys(unionTypes)
+  const typeOptions = discriminantField.literalOptions || []
+  const selectedType = getNestedValue(form.data, discriminantPath)
 
   const handleTypeChange = (newType: string) => {
-    setSelectedType(newType)
+    form.updateField(discriminantPath, newType)
 
     // Clear fields from other union variants
     Object.entries(field.children || {}).forEach(([key, childField]) => {
       const typedChildField = childField as FormFieldDefinition
       if (
+        key !== discriminantKey &&
         typedChildField.condition &&
         typedChildField.condition.value !== newType
       ) {
-        const fullPath = basePath ? `${basePath}.${key}` : key
-        form.updateField(fullPath, undefined)
+        form.updateField(key, undefined)
       }
     })
   }
@@ -341,9 +382,7 @@ export function DiscriminatedUnionSection({
         <CardTitle className="text-sm sm:text-base">
           {field.label || formatLabel(field.key)}
           {field.description && (
-            <p className="text-muted-foreground mt-2 text-xs sm:text-sm">
-              {field.description}
-            </p>
+            <p className="text-muted-foreground mt-2 text-xs sm:text-sm">{field.description}</p>
           )}
         </CardTitle>
       </CardHeader>
@@ -351,32 +390,45 @@ export function DiscriminatedUnionSection({
         {/* Type Selection */}
         <div className="space-y-2">
           <Label className="text-xs sm:text-sm font-semibold">
-            {field.label || formatLabel(field.key)}
+            {discriminantField.label || formatLabel(discriminantKey)}
+            {discriminantField.required && <span className="text-red-500">*</span>}
           </Label>
           <div className="flex flex-wrap gap-2">
-            {typeOptions.map((option) => (
-              <Button
-                key={option}
-                type="button"
-                variant={selectedType === option ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleTypeChange(option)}
-                className="capitalize"
-              >
-                {option}
-              </Button>
-            ))}
+            {typeOptions.map((option) => {
+              const optionStr = String(option)
+
+              return (
+                <Button
+                  key={optionStr}
+                  type="button"
+                  variant={selectedType === option ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleTypeChange(optionStr)}
+                  className="capitalize"
+                >
+                  {optionStr}
+                </Button>
+              )
+            })}
           </div>
+          {selectedType && discriminantField.literalOptionsDescriptions?.[String(selectedType)] && (
+            <p className="text-muted-foreground text-xs sm:text-sm border-l-2 border-primary pl-2">
+              {discriminantField.literalOptionsDescriptions[String(selectedType)]}
+            </p>
+          )}
         </div>
 
         {/* Conditional Fields */}
-        {selectedType && unionTypes[selectedType] && (
+        {selectedType && unionTypes[selectedType] && unionTypes[selectedType].length > 0 && (
           <div className="space-y-3">
             {unionTypes[selectedType].map((conditionalField) => {
-              const fullPath = basePath
-                ? `${basePath}.${conditionalField.key}`
-                : conditionalField.key
+              const fullPath = conditionalField.key
               const value = getNestedValue(form.data, fullPath)
+
+              // Double-check the condition matches (safety check)
+              if (conditionalField.condition && conditionalField.condition.value !== selectedType) {
+                return null
+              }
 
               return (
                 <FormField
@@ -385,6 +437,7 @@ export function DiscriminatedUnionSection({
                   value={value}
                   onChange={(value) => form.updateField(fullPath, value)}
                   error={form.validationErrors[fullPath]}
+                  minimal={minimal}
                 />
               )
             })}
@@ -406,30 +459,19 @@ export function FormSection<T = any>({
   initialCollapsed = false,
   minimal = false,
 }: NestedFormProps<T>) {
-  const [isCollapsed, setIsCollapsed] = useState(
-    level > 2 ? true : initialCollapsed
-  )
+  const [isCollapsed, setIsCollapsed] = useState(level > 2 ? true : initialCollapsed)
 
   // Guard against undefined field
   if (!field) return null
   if (!field.children) return null
 
   // Check if this is a discriminated union (has children with conditions)
-  const hasConditionalChildren = Object.values(field.children).some(
-    (child) => child.condition
-  )
+  const hasConditionalChildren = Object.values(field.children).some((child) => child.condition)
   if (hasConditionalChildren) {
-    return (
-      <DiscriminatedUnionSection
-        field={field}
-        form={form}
-        basePath={basePath}
-      />
-    )
+    return <DiscriminatedUnionSection field={field} form={form} minimal={minimal} />
   }
 
-  const sectionValue =
-    getNestedValue(form.data, basePath) || (field.type === 'array' ? [] : {})
+  const sectionValue = getNestedValue(form.data, basePath) || (field.type === 'array' ? [] : {})
   const isArray = field.type === 'array'
   const isRoot = level === 0
 
@@ -442,9 +484,7 @@ export function FormSection<T = any>({
   }
 
   const removeItem = (index: number) => {
-    const newArray = (sectionValue as any[]).filter(
-      (_: any, i: number) => i !== index
-    )
+    const newArray = (sectionValue as any[]).filter((_: any, i: number) => i !== index)
     form.updateField(basePath, newArray)
     // Collapse the section when all items are removed
     if (newArray.length === 0) {
@@ -464,8 +504,7 @@ export function FormSection<T = any>({
       .map(([key, childField]) => {
         // Check if field has a condition and evaluate it
         if (childField.condition) {
-          const { field: conditionField, value: expectedValue } =
-            childField.condition
+          const { field: conditionField, value: expectedValue } = childField.condition
           const conditionValue = getNestedValue(form.data, conditionField)
           if (conditionValue !== expectedValue) {
             return null // Don't render this field
@@ -473,9 +512,7 @@ export function FormSection<T = any>({
         }
 
         const fullPath =
-          itemIndex !== undefined
-            ? `${parentPath}[${itemIndex}].${key}`
-            : childField.key
+          itemIndex !== undefined ? `${parentPath}[${itemIndex}].${key}` : childField.key
         const fieldName = key.split('.').pop() || key
         const childValue = getNestedValue(parentValue, fieldName)
 
@@ -517,9 +554,7 @@ export function FormSection<T = any>({
             <ChevronDown className="h-4 w-4 shrink-0" />
           )}
           <CardTitle className="min-w-0 flex-1 text-sm sm:text-base">
-            <span className="truncate">
-              {field.label || formatLabel(field.key)}
-            </span>
+            <span className="truncate">{field.label || formatLabel(field.key)}</span>
             {isArray && (
               <Badge variant="outline" className="ml-2 text-xs">
                 {(sectionValue as any[]).length} items
@@ -548,9 +583,7 @@ export function FormSection<T = any>({
         )}
       </div>
       {field.description && (
-        <p className="text-muted-foreground mt-2 text-xs sm:text-sm">
-          {field.description}
-        </p>
+        <p className="text-muted-foreground mt-2 text-xs sm:text-sm">{field.description}</p>
       )}
     </>
   )
@@ -563,10 +596,7 @@ export function FormSection<T = any>({
     ) : (
       <div className="space-y-4">
         {(sectionValue as any[]).map((item: any, index: number) => (
-          <Card
-            key={`${basePath}[${index}]`}
-            className="border border-dashed !shadow-none"
-          >
+          <Card key={`${basePath}[${index}]`} className="border border-dashed !shadow-none">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm">Item {index + 1}</CardTitle>
@@ -597,11 +627,7 @@ export function FormSection<T = any>({
     <Card
       className={cn(
         'border-l-4',
-        isRoot
-          ? isArray
-            ? 'border-l-green-500'
-            : 'border-l-primary'
-          : 'border-l-accent'
+        isRoot ? (isArray ? 'border-l-green-500' : 'border-l-primary') : 'border-l-accent'
       )}
     >
       <CardHeader
@@ -612,9 +638,7 @@ export function FormSection<T = any>({
       </CardHeader>
 
       {!isCollapsed && (
-        <CardContent className="space-y-3 p-3 sm:space-y-4 sm:p-6 pt-0">
-          {content}
-        </CardContent>
+        <CardContent className="space-y-3 p-3 sm:space-y-4 sm:p-6 pt-0">{content}</CardContent>
       )}
     </Card>
   )
@@ -641,10 +665,7 @@ export function FormBuilder<T = any>({
 
   const rootFields = Object.entries(form.fields)
     .filter(([, field]) => field && field.key && !field.key.includes('.'))
-    .sort(
-      ([, a], [, b]) =>
-        calculateFieldComplexity(a) - calculateFieldComplexity(b)
-    )
+    .sort(([, a], [, b]) => calculateFieldComplexity(a) - calculateFieldComplexity(b))
 
   // Get root-level validation errors (from Schema.filter or general validation)
   const rootError = form.validationErrors['_root']
@@ -662,8 +683,7 @@ export function FormBuilder<T = any>({
           .map(([key, field]) => {
             // Check if field has a condition and evaluate it
             if (field.condition) {
-              const { field: conditionField, value: expectedValue } =
-                field.condition
+              const { field: conditionField, value: expectedValue } = field.condition
               const conditionValue = getNestedValue(form.data, conditionField)
               if (conditionValue !== expectedValue) {
                 return null // Don't render this field
@@ -672,15 +692,14 @@ export function FormBuilder<T = any>({
 
             // Check if this is a discriminated union (has children with conditions)
             const hasConditionalChildren =
-              field.children &&
-              Object.values(field.children).some((child) => child.condition)
+              field.children && Object.values(field.children).some((child) => child.condition)
             if (hasConditionalChildren) {
               return (
                 <DiscriminatedUnionSection
                   key={field.key}
                   field={field}
                   form={form}
-                  basePath={key}
+                  minimal={false}
                 />
               )
             }
@@ -727,25 +746,17 @@ export function FormBuilder<T = any>({
             ) : (
               <ChevronDown className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
             )}
-            <CardTitle className="min-w-0 flex-1 truncate text-base sm:text-lg">
-              {title}
-            </CardTitle>
+            <CardTitle className="min-w-0 flex-1 truncate text-base sm:text-lg">{title}</CardTitle>
           </div>
         </CardHeader>
-        {!isCollapsed && (
-          <CardContent className="p-3 sm:p-6 pt-0">{content}</CardContent>
-        )}
+        {!isCollapsed && <CardContent className="p-3 sm:p-6 pt-0">{content}</CardContent>}
       </Card>
     )
   }
 
   return (
     <div className={className}>
-      {title && (
-        <h3 className="mb-3 text-base font-semibold sm:mb-4 sm:text-lg">
-          {title}
-        </h3>
-      )}
+      {title && <h3 className="mb-3 text-base font-semibold sm:mb-4 sm:text-lg">{title}</h3>}
       {content}
     </div>
   )

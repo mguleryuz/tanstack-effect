@@ -244,6 +244,13 @@ export function useSchemaForm<T>({
     onValidationChange?.({})
   }, [onValidationChange])
 
+  // Validate on mount and when data changes
+  React.useEffect(() => {
+    if (data) {
+      validateData(data)
+    }
+  }, [data, validateData])
+
   const updateFromJson = React.useCallback(
     (jsonString: string): boolean => {
       try {
