@@ -3,6 +3,7 @@
 import { Schema } from 'effect'
 import * as React from 'react'
 
+import { stringToNumber, toAmountString } from '../format'
 import type { FormFieldDefinition } from '../schema-form'
 import {
   generateFormFieldsWithSchemaAnnotations,
@@ -200,15 +201,9 @@ export function useSchemaForm<T>({
       const originalValue = getNestedValue(data, path)
       let coercedValue = value
 
-      // Handle null/undefined values for different types
+      // Allow undefined/null to clear fields (validation will catch required field violations)
       if (value === null || value === undefined) {
-        if (typeof originalValue === 'number') {
-          coercedValue = 0 // Default to 0 for number fields
-        } else if (typeof originalValue === 'boolean') {
-          coercedValue = false // Default to false for boolean fields
-        } else if (typeof originalValue === 'string') {
-          coercedValue = '' // Default to empty string for string fields
-        }
+        coercedValue = value
       } else if (
         originalValue !== null &&
         originalValue !== undefined &&
@@ -221,8 +216,16 @@ export function useSchemaForm<T>({
         // If types don't match, try to coerce
         if (originalType !== newType) {
           if (originalType === 'number' && newType === 'string') {
-            const numValue = Number(value)
-            coercedValue = isNaN(numValue) ? 0 : numValue
+            // Format the string input (handles commas, multiple periods, etc.)
+            const formatted = toAmountString(value)
+            if (!formatted) {
+              // If formatting results in empty, keep the value as is
+              coercedValue = value
+            } else {
+              // Convert formatted string to number
+              const numValue = stringToNumber(formatted)
+              coercedValue = isNaN(numValue) ? value : numValue
+            }
           } else if (originalType === 'boolean' && newType === 'string') {
             coercedValue = value === 'true' || value === true
           }

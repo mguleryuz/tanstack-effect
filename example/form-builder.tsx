@@ -1,6 +1,4 @@
 // @ts-nocheck
-'use client'
-
 import { useState } from 'react'
 import { formatLabel, getNestedValue } from 'tanstack-effect'
 import type {
@@ -58,19 +56,26 @@ export function FormField({ field, value, onChange, error, minimal = false }: Fo
       case 'number':
         return (
           <Input
-            type="number"
-            value={value ?? ''}
+            type="text"
+            inputMode="decimal"
+            value={value === undefined || value === null || value === 0 ? '' : value}
             step={field.step}
             min={field.min}
             max={field.max}
             onChange={(e) => {
               const inputValue = e.target.value
+              
+              // Empty string means user wants to clear the field
               if (inputValue === '') {
-                onChange(0)
-              } else {
-                const val = Number(inputValue)
-                onChange(isNaN(val) ? 0 : val)
+                onChange(undefined)
+                return
               }
+              
+              // Pass the raw input to the form hook for formatting and validation
+              onChange(inputValue)
+            }}
+            onWheel={(e) => {
+              e.currentTarget.blur()
             }}
             className={cn(error && 'border-red-500')}
           />
@@ -168,6 +173,18 @@ export function FormField({ field, value, onChange, error, minimal = false }: Fo
 }
 
 /**
+ * Helper function to check if a form is valid (including root-level errors)
+ * This should be used instead of Object.keys(form.validationErrors).length === 0
+ */
+export function isFormValid<T = any>(form: UseSchemaFormReturn<T>): boolean {
+  // Check if there are any validation errors at all
+  const hasErrors = Object.keys(form.validationErrors).length > 0
+  // Also explicitly check for root error
+  const hasRootError = !!form.validationErrors['_root']
+  return !hasErrors && !hasRootError
+}
+
+/**
  * Helper to recursively collect all required fields from form schema
  */
 function collectRequiredFields(
@@ -199,11 +216,28 @@ function collectRequiredFields(
     if (field.children) {
       const fieldValue = getNestedValue(data, field.key)
 
-      // For arrays: only check children if array is required OR has items
+      // For arrays: iterate through each item and collect required fields
       if (field.type === 'array') {
         const isArrayPopulated = Array.isArray(fieldValue) && fieldValue.length > 0
         if (!field.required && !isArrayPopulated) {
           return // Skip checking children of optional empty arrays
+        }
+
+        // For each item in the array, collect required fields with proper path
+        if (Array.isArray(fieldValue)) {
+          fieldValue.forEach((item, index) => {
+            Object.entries(field.children || {}).forEach(([childKey, childField]) => {
+              if (!childField || !childField.required || childField.type === 'object' || childField.type === 'array') {
+                return
+              }
+              // Build the full path with array index
+              const fullPath = `${field.key}[${index}].${childKey}`
+              required.push({
+                key: fullPath,
+                label: childField.label || formatLabel(childKey),
+              })
+            })
+          })
         }
       }
 
@@ -214,10 +248,10 @@ function collectRequiredFields(
         if (!field.required && !isObjectPopulated) {
           return // Skip checking children of optional empty objects
         }
-      }
 
-      const childRequired = collectRequiredFields(field.children, data)
-      required.push(...childRequired)
+        const childRequired = collectRequiredFields(field.children, data)
+        required.push(...childRequired)
+      }
     }
   })
 
