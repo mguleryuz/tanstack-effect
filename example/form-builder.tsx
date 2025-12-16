@@ -17,7 +17,6 @@ import {
   Info,
   Plus,
   Trash2,
-  Circle,
   AlertCircle,
   CheckCircle,
 } from 'lucide-react'
@@ -64,13 +63,13 @@ export function FormField({ field, value, onChange, error, minimal = false }: Fo
             max={field.max}
             onChange={(e) => {
               const inputValue = e.target.value
-              
+
               // Empty string means user wants to clear the field
               if (inputValue === '') {
                 onChange(undefined)
                 return
               }
-              
+
               // Pass the raw input to the form hook for formatting and validation
               onChange(inputValue)
             }}
@@ -142,16 +141,16 @@ export function FormField({ field, value, onChange, error, minimal = false }: Fo
         >
           <span className="break-words">{field.label || formatLabel(field.key)}</span>
           {field.required ? (
-            <span className="text-red-500">*</span>
+            <span className="text-destructive">*</span>
           ) : (
-            <Circle className="inline h-3 w-3 ml-1 text-muted-foreground" />
+            <span className="text-muted-foreground ml-1 text-[10px]">(optional)</span>
           )}
         </Label>
         {field.description && (
           <Button
             variant="ghost"
             size="sm"
-            className="h-auto shrink-0 p-1"
+            className="h-auto shrink-0 p-0 opacity-60 hover:opacity-100"
             onClick={() => setShowDescription(!showDescription)}
             tabIndex={-1}
             aria-label="Show description"
@@ -162,12 +161,12 @@ export function FormField({ field, value, onChange, error, minimal = false }: Fo
       </div>
 
       {showDescription && field.description && (
-        <p className="text-muted-foreground border-t text-xs sm:text-sm">{field.description}</p>
+        <p className="text-muted-foreground text-xs sm:text-sm">{field.description}</p>
       )}
 
       <div className="w-full">{renderField()}</div>
 
-      {error && <div className="text-xs text-red-500 sm:text-sm">{error}</div>}
+      {error && <div className="text-xs text-destructive sm:text-sm">{error}</div>}
     </div>
   )
 }
@@ -227,7 +226,12 @@ function collectRequiredFields(
         if (Array.isArray(fieldValue)) {
           fieldValue.forEach((item, index) => {
             Object.entries(field.children || {}).forEach(([childKey, childField]) => {
-              if (!childField || !childField.required || childField.type === 'object' || childField.type === 'array') {
+              if (
+                !childField ||
+                !childField.required ||
+                childField.type === 'object' ||
+                childField.type === 'array'
+              ) {
                 return
               }
               // Build the full path with array index
@@ -306,7 +310,7 @@ export function FormValidationAlert<T = any>({
             )}
             {rootError && (
               <div className="flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-red-600" />
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
                 <span>{rootError}</span>
               </div>
             )}
@@ -416,7 +420,7 @@ export function DiscriminatedUnionSection({
         <CardTitle className="text-sm sm:text-base">
           {field.label || formatLabel(field.key)}
           {field.description && (
-            <p className="text-muted-foreground mt-2 text-xs sm:text-sm">{field.description}</p>
+            <p className="text-muted-foreground mt-2 text-xs sm:text-sm font-normal">{field.description}</p>
           )}
         </CardTitle>
       </CardHeader>
@@ -425,7 +429,7 @@ export function DiscriminatedUnionSection({
         <div className="space-y-2">
           <Label className="text-xs sm:text-sm font-semibold">
             {discriminantField.label || formatLabel(discriminantKey)}
-            {discriminantField.required && <span className="text-red-500">*</span>}
+            {discriminantField.required && <span className="text-destructive">*</span>}
           </Label>
           <div className="flex flex-wrap gap-2">
             {typeOptions.map((option) => {
@@ -594,27 +598,37 @@ export function FormSection<T = any>({
                 {(sectionValue as any[]).length} items
               </Badge>
             )}
-            {level > 0 && (
-              <Badge variant="secondary" className="ml-2 text-xs">
-                L{level}
-              </Badge>
-            )}
           </CardTitle>
         </div>
-        {isArray && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation()
-              addItem()
-            }}
-            className="shrink-0"
-          >
-            <Plus className="h-3 w-3 mr-1" />
-            Add
-          </Button>
-        )}
+        <div className="flex gap-2 items-center">
+          {isArray && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation()
+                addItem()
+              }}
+              className="shrink-0"
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Add
+            </Button>
+          )}
+          {!isArray && !field.required && sectionValue && Object.keys(sectionValue).length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation()
+                form.updateField(basePath, undefined)
+              }}
+              className="shrink-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+            >
+              Clear
+            </Button>
+          )}
+        </div>
       </div>
       {field.description && (
         <p className="text-muted-foreground mt-2 text-xs sm:text-sm">{field.description}</p>
@@ -661,7 +675,7 @@ export function FormSection<T = any>({
     <Card
       className={cn(
         'border-l-4',
-        isRoot ? (isArray ? 'border-l-green-500' : 'border-l-primary') : 'border-l-accent'
+        'border-l-primary'
       )}
     >
       <CardHeader
