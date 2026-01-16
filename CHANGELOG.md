@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.16](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.15...v0.0.16) (2026-01-16)
+
+
+### Features
+
+* add logging for API effect fetching and error handling in development ([0c4e249](https://github.com/mguleryuz/tanstack-effect/commit/0c4e249a3e1618c4b960f2569c188a7981cb0326))
+* enhance schema description extraction with improved AST traversal and annotation handling ([ffb9e3c](https://github.com/mguleryuz/tanstack-effect/commit/ffb9e3c72fa741c4ade94e1c4cd9b77318d8fab9))
+
 ### [0.0.15](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.14...v0.0.15) (2025-12-16)
 
 ### [0.0.14](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.13...v0.0.14) (2025-12-16)
