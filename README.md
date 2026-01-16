@@ -133,6 +133,46 @@ Using the example `FormBuilder` UI:
 
 This lets you infer form fields directly from your schema without maintaining separate field configs.
 
+#### Important: Schema Annotations with `optionalWith`
+
+When using `Schema.optionalWith()` for optional fields with defaults, annotations must be placed on the **inner Schema type**, not on the `optionalWith` result. This is due to how Effect Schema handles `PropertySignature` annotations internally.
+
+**Correct pattern (annotations preserved):**
+
+```ts
+import { Schema } from 'effect'
+
+const MySchema = Schema.Struct({
+  // ✅ Annotations on the inner Schema type - WORKS
+  maxItems: Schema.optionalWith(
+    Schema.Number.annotations({
+      title: 'Max Items',
+      description: 'Maximum number of items to process',
+    }),
+    { default: () => 50 }
+  ),
+
+  // ✅ Using a pre-defined annotated Schema - WORKS
+  logLevel: Schema.optionalWith(LogLevel, { default: () => 'info' }),
+})
+```
+
+**Incorrect pattern (annotations lost):**
+
+```ts
+const MySchema = Schema.Struct({
+  // ❌ Annotations on optionalWith result - DOES NOT WORK
+  maxItems: Schema.optionalWith(Schema.Number, {
+    default: () => 50,
+  }).annotations({
+    title: 'Max Items',
+    description: 'Maximum number of items to process',
+  }),
+})
+```
+
+This limitation exists because `Schema.optionalWith()` returns a `PropertySignature`, and calling `.annotations()` on a `PropertySignature` doesn't store annotations in the AST in an accessible way. By placing annotations on the inner Schema type, the annotations are preserved and can be extracted by the form builder.
+
 2. Define your API on the shared file and generate the client type
 
 <!-- BEGIN:shared -->

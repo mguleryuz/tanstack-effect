@@ -289,6 +289,99 @@ function getFieldType(
   }
 }
 
+// Helper to extract description annotation from any AST node
+function extractDescriptionFromAst(ast: any): string | undefined {
+  if (!ast) return undefined
+
+  // Helper to check an annotations object
+  const checkAnnotationsObject = (annotations: any): string | undefined => {
+    if (!annotations) return undefined
+
+    // Check Symbol-keyed annotations
+    for (const symbol of Object.getOwnPropertySymbols(annotations)) {
+      if (symbol.description === 'effect/annotation/Description') {
+        const desc = annotations[symbol]
+        if (
+          desc &&
+          desc !== 'a number' &&
+          desc !== 'a string' &&
+          desc !== 'a boolean'
+        ) {
+          return desc
+        }
+      }
+    }
+    return undefined
+  }
+
+  // Check direct annotations
+  if (ast.annotations) {
+    const desc = checkAnnotationsObject(ast.annotations)
+    if (desc) return desc
+  }
+
+  // For Transformations, also check the 'to' AST's annotations
+  if (ast._tag === 'Transformation' && ast.to && ast.to.annotations) {
+    const desc = checkAnnotationsObject(ast.to.annotations)
+    if (desc) return desc
+  }
+
+  return undefined
+}
+
+// Recursively search for description in an AST node and its wrappers
+function findDescriptionInAst(ast: any, depth = 0): string | undefined {
+  if (!ast || depth > 10) return undefined // Prevent infinite recursion
+
+  // Check current node
+  const desc = extractDescriptionFromAst(ast)
+  if (desc) return desc
+
+  // Unwrap Transformation - check both from and to
+  if (ast._tag === 'Transformation') {
+    // Check 'from' first (usually has the core schema)
+    if (ast.from) {
+      const fromDesc = findDescriptionInAst(ast.from, depth + 1)
+      if (fromDesc) return fromDesc
+    }
+    // Then check 'to' (might have annotations in some structures)
+    if (ast.to) {
+      const toDesc = findDescriptionInAst(ast.to, depth + 1)
+      if (toDesc) return toDesc
+    }
+  }
+
+  // Unwrap Refinement
+  if (ast._tag === 'Refinement' && ast.from) {
+    const fromDesc = findDescriptionInAst(ast.from, depth + 1)
+    if (fromDesc) return fromDesc
+  }
+
+  // Unwrap Union - check non-undefined types for descriptions
+  if (ast._tag === 'Union' && Array.isArray(ast.types)) {
+    const nonUndefinedTypes = ast.types.filter(
+      (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+    )
+    for (const type of nonUndefinedTypes) {
+      const typeDesc = findDescriptionInAst(type, depth + 1)
+      if (typeDesc) return typeDesc
+    }
+  }
+
+  // Unwrap Suspend
+  if (ast._tag === 'Suspend' && typeof ast.f === 'function') {
+    try {
+      const innerAst = ast.f()
+      const innerDesc = findDescriptionInAst(innerAst, depth + 1)
+      if (innerDesc) return innerDesc
+    } catch {
+      // ignore
+    }
+  }
+
+  return undefined
+}
+
 // Extract descriptions from Effect Schema annotations using proper AST traversal
 function extractSchemaAnnotations(
   schema: any,
@@ -355,89 +448,23 @@ function extractSchemaAnnotations(
         const fullPath = path ? `${path}.${keyName}` : keyName
 
         // Extract description from property signature annotations (highest priority)
-        if (propSig.annotations) {
-          Object.getOwnPropertySymbols(propSig.annotations).forEach(
-            (symbol) => {
-              if (symbol.description === 'effect/annotation/Description') {
-                const description = propSig.annotations[symbol]
-                // Only add meaningful descriptions (not generic ones like "a number")
-                if (
-                  description &&
-                  description !== 'a number' &&
-                  description !== 'a string' &&
-                  description !== 'a boolean'
-                ) {
-                  descriptions[fullPath] = description
-                }
-              }
-            }
-          )
+        const propSigDesc = extractDescriptionFromAst(propSig)
+        if (propSigDesc) {
+          descriptions[fullPath] = propSigDesc
         }
 
-        // Extract description from property type annotations using Symbols
-        // First try to get annotations from the type itself (if not already set)
-        if (
-          propSig.type &&
-          propSig.type.annotations &&
-          !descriptions[fullPath]
-        ) {
-          // Effect Schema uses Symbol keys for annotations
-          Object.getOwnPropertySymbols(propSig.type.annotations).forEach(
-            (symbol) => {
-              if (symbol.description === 'effect/annotation/Description') {
-                const description = propSig.type.annotations[symbol]
-                // Only add meaningful descriptions (not generic ones like "a number")
-                if (
-                  description &&
-                  description !== 'a number' &&
-                  description !== 'a string' &&
-                  description !== 'a boolean'
-                ) {
-                  descriptions[fullPath] = description
-                }
-              }
-            }
-          )
-        }
-
-        // For optional fields (Union types), also check annotations on the wrapped type
-        if (
-          propSig.type &&
-          propSig.type._tag === 'Union' &&
-          Array.isArray(propSig.type.types)
-        ) {
-          const nonUndefinedTypes = propSig.type.types.filter(
-            (t: any) =>
-              t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
-          )
-          if (
-            nonUndefinedTypes.length === 1 &&
-            nonUndefinedTypes[0].annotations
-          ) {
-            Object.getOwnPropertySymbols(
-              nonUndefinedTypes[0].annotations
-            ).forEach((symbol) => {
-              if (symbol.description === 'effect/annotation/Description') {
-                const description = nonUndefinedTypes[0].annotations[symbol]
-                // Only add meaningful descriptions (not generic ones like "a number")
-                if (
-                  description &&
-                  description !== 'a number' &&
-                  description !== 'a string' &&
-                  description !== 'a boolean' &&
-                  !descriptions[fullPath] // Don't override if already set
-                ) {
-                  descriptions[fullPath] = description
-                }
-              }
-            })
+        // If no description from property signature, check the type
+        if (!descriptions[fullPath] && propSig.type) {
+          // Use the recursive helper to find description in any wrapper type
+          const typeDesc = findDescriptionInAst(propSig.type)
+          if (typeDesc) {
+            descriptions[fullPath] = typeDesc
           }
         }
 
-        // Recursively process nested structures
-        // First unwrap Union types (from Schema.optional) to get the actual type
-        let actualNestedType = propSig.type
+        // For optional fields (Union types), also check the non-undefined type
         if (
+          !descriptions[fullPath] &&
           propSig.type &&
           propSig.type._tag === 'Union' &&
           Array.isArray(propSig.type.types)
@@ -447,13 +474,48 @@ function extractSchemaAnnotations(
               t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
           )
           if (nonUndefinedTypes.length === 1) {
+            const wrappedDesc = findDescriptionInAst(nonUndefinedTypes[0])
+            if (wrappedDesc) {
+              descriptions[fullPath] = wrappedDesc
+            }
+          }
+        }
+
+        // Recursively process nested structures
+        // Unwrap Union types (from Schema.optional), Transformation types (from .annotations()),
+        // and Refinement types (from .pipe(Schema.filter()))
+        let actualNestedType = propSig.type
+
+        // Unwrap Union types first
+        if (
+          actualNestedType &&
+          actualNestedType._tag === 'Union' &&
+          Array.isArray(actualNestedType.types)
+        ) {
+          const nonUndefinedTypes = actualNestedType.types.filter(
+            (t: any) =>
+              t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+          )
+          if (nonUndefinedTypes.length === 1) {
             actualNestedType = nonUndefinedTypes[0]
           }
         }
 
+        // Unwrap Transformation types (from .annotations())
+        while (actualNestedType && actualNestedType._tag === 'Transformation') {
+          actualNestedType = actualNestedType.from || actualNestedType.to
+        }
+
+        // Unwrap Refinement types (from .pipe(Schema.filter()))
+        while (actualNestedType && actualNestedType._tag === 'Refinement') {
+          actualNestedType = actualNestedType.from
+        }
+
         if (actualNestedType && actualNestedType._tag === 'TypeLiteral') {
+          // Pass the original propSig.type to preserve annotations context
+          // The extractSchemaAnnotations function will unwrap to TypeLiteral internally
           const nestedDescriptions = extractSchemaAnnotations(
-            actualNestedType,
+            propSig.type,
             fullPath
           )
           Object.assign(descriptions, nestedDescriptions)
@@ -593,7 +655,8 @@ export function generateFormFieldsWithSchemaAnnotations(
     Object.keys(fieldObj).forEach((key) => {
       const field = fieldObj[key]
 
-      // Assign description if available
+      // field.key is already the full path (e.g., "options.maxCandidatesPerRun")
+      // So we use it directly for description lookup
       if (descriptions[field.key]) {
         field.description = descriptions[field.key]
       }
@@ -601,10 +664,15 @@ export function generateFormFieldsWithSchemaAnnotations(
       // Handle array element descriptions (stored as field[] in descriptions)
       if (field.type === 'array' && field.children) {
         Object.keys(field.children).forEach((childKey) => {
+          const childField = field.children![childKey]
+          // For array children, construct path like "field.key[].childKey"
           const arrayElementKey = `${field.key}[]${childKey.startsWith('.') ? '' : '.'}${childKey}`
           if (descriptions[arrayElementKey]) {
-            field.children![childKey].description =
-              descriptions[arrayElementKey]
+            childField.description = descriptions[arrayElementKey]
+          }
+          // Also try direct lookup with childKey if it's a full path
+          if (!childField.description && descriptions[childKey]) {
+            childField.description = descriptions[childKey]
           }
         })
       }
