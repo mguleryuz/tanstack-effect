@@ -85,12 +85,6 @@ export function apiEffectRunner<
   includeCredentials = false,
   noCache = false
 ): PromiseSuccess<X, Y> {
-  if (process.env.NODE_ENV === 'development') {
-    console.log(
-      `[tanstack-effect] Fetching ${String(section)}.${String(method)}`,
-      params
-    )
-  }
   const program = apiEffect(
     section,
     method,
