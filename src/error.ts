@@ -31,25 +31,20 @@ export class EffectHttpError extends Error {
     this.response = effectError.response
     this.request = effectError.request
 
-    // Enhanced validation error handling
+    // Enhanced validation error handling - only log validation issues
     if (effectError?.error?.issues) {
       this.validationErrors = effectError.error.issues
       console.group('🔍 Effect Validation Error Details')
-      console.error('Full Error Object:', effectError)
       console.error('Validation Issues:', effectError.error.issues)
       console.groupEnd()
-    } else if (effectError?._tag === 'ResponseError') {
-      console.group('🔍 Effect Response Error Details')
-      console.error('Full Error Object:', effectError)
-      console.error('Response Status:', effectError.status)
-      console.error('Response Body:', effectError.error)
-      console.groupEnd()
-    } else {
-      console.group('🔍 Effect Error Details')
-      console.error('Full Error Object:', effectError)
-      console.error('Error Tag:', effectError._tag)
-      console.error('Error Message:', message)
-      console.groupEnd()
+    }
+    // Only log unexpected errors (not 404s which are often expected)
+    else if (
+      process.env.NODE_ENV === 'development' &&
+      effectError?.status !== 404 &&
+      effectError?._tag !== 'ResponseError'
+    ) {
+      console.debug('EffectHttpError:', message, effectError?._tag)
     }
 
     // Ensure proper prototype chain

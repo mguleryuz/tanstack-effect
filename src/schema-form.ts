@@ -664,7 +664,9 @@ function generateFormFieldsFromSchema(
           actualType.rest &&
           actualType.rest.length > 0
         ) {
-          const elementType = actualType.rest[0]?.type
+          const rawElementType = actualType.rest[0]?.type
+          const elementType = getActualType(rawElementType)
+
           if (elementType && elementType._tag === 'TypeLiteral') {
             // For array elements, generate children with simple keys (not full paths)
             const children = generateFormFieldsFromSchema(elementType, '')
@@ -677,6 +679,45 @@ function generateFormFieldsFromSchema(
               children,
             }
           }
+          // Handle arrays of literals (like Schema.Array(Schema.Literal("a", "b")))
+          else if (
+            elementType &&
+            (elementType._tag === 'Literal' || isUnionOfLiterals(elementType))
+          ) {
+            const literalOptions = getLiteralOptions(elementType)
+            // Try to get descriptions from the element type or raw element type
+            const literalDescriptions =
+              getLiteralDescriptions(rawElementType) ||
+              getLiteralDescriptions(elementType)
+
+            // For arrays of primitives/literals, store literalOptions on the array field itself
+            // The form builder should render each item as a direct literal select
+            fields[fullPath] = {
+              key: fullPath,
+              label: formatLabel(keyName),
+              type: 'array',
+              required: isRequired,
+              literalOptions, // Store options here for form builder to use
+              literalOptionsDescriptions: literalDescriptions,
+            }
+          }
+          // Handle arrays of primitives (strings, numbers, etc.)
+          else if (elementType) {
+            const elementFieldType = getSchemaFieldType(elementType)
+            if (
+              elementFieldType !== 'unknown' &&
+              elementFieldType !== 'object' &&
+              elementFieldType !== 'array'
+            ) {
+              fields[fullPath] = {
+                key: fullPath,
+                label: formatLabel(keyName),
+                type: 'array',
+                required: isRequired,
+                // No children - this is a primitive array
+              }
+            }
+          }
         }
         // Handle Union of Literals FIRST (before discriminated unions)
         else if (
@@ -686,12 +727,17 @@ function generateFormFieldsFromSchema(
         ) {
           const literalOptions = getLiteralOptions(actualType)
           if (literalOptions.length > 0) {
+            // Try to get descriptions from the original type (before unwrapping)
+            const literalDescriptions =
+              getLiteralDescriptions(propSig.type) ||
+              getLiteralDescriptions(actualType)
             fields[fullPath] = {
               key: fullPath,
               label: formatLabel(keyName),
               type: 'literal',
               required: isRequired,
               literalOptions,
+              literalOptionsDescriptions: literalDescriptions,
             }
           }
         }
@@ -772,9 +818,27 @@ function isUnionWithUndefined(typeAst: any): boolean {
 }
 
 // Get the actual type from a potentially Union type (handles optional fields)
+// Also unwraps Transformation and Refinement types to get to the underlying type
 function getActualType(typeAst: any): any {
   try {
     if (!typeAst) return null
+
+    // Handle Transformation types (from .pipe() or .annotations())
+    // Effect wraps annotated types in Transformation
+    if (typeAst._tag === 'Transformation') {
+      // Try 'from' first (the source type), then 'to'
+      if (typeAst.from) {
+        return getActualType(typeAst.from)
+      }
+      if (typeAst.to) {
+        return getActualType(typeAst.to)
+      }
+    }
+
+    // Handle Refinement types (from .pipe(Schema.filter(...)))
+    if (typeAst._tag === 'Refinement' && typeAst.from) {
+      return getActualType(typeAst.from)
+    }
 
     // Handle Union types (optional fields)
     if (typeAst._tag === 'Union' && Array.isArray(typeAst.types)) {
@@ -783,9 +847,9 @@ function getActualType(typeAst: any): any {
         (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
       )
 
-      // If there's only one non-undefined type, return it directly
+      // If there's only one non-undefined type, unwrap it recursively
       if (nonUndefinedTypes.length === 1) {
-        return nonUndefinedTypes[0]
+        return getActualType(nonUndefinedTypes[0])
       }
 
       // If there are multiple non-undefined types (e.g., union of literals),
@@ -832,6 +896,40 @@ function getLiteralValue(typeAst: any): any {
     return null
   } catch {
     return null
+  }
+}
+
+// Extract literalDescriptions from schema annotations
+// Looks for a custom annotation with key containing 'literalDescriptions'
+function getLiteralDescriptions(
+  typeAst: any
+): Record<string, string> | undefined {
+  try {
+    if (!typeAst) return undefined
+
+    // Check annotations on the type itself
+    const annotations = typeAst.annotations
+    if (!annotations) return undefined
+
+    // Look through Symbol annotations for literalDescriptions
+    const symbols = Object.getOwnPropertySymbols(annotations)
+    for (const symbol of symbols) {
+      const symbolDesc = symbol.description || ''
+      if (symbolDesc.includes('literalDescriptions')) {
+        return annotations[symbol]
+      }
+    }
+
+    // Also check regular string keys (for custom annotations)
+    for (const key of Object.keys(annotations)) {
+      if (key.includes('literalDescriptions')) {
+        return annotations[key]
+      }
+    }
+
+    return undefined
+  } catch {
+    return undefined
   }
 }
 

@@ -6,17 +6,15 @@ All notable changes to this project will be documented in this file. See [standa
 
 ### [0.0.14](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.13...v0.0.14) (2025-12-16)
 
-
 ### Features
 
-* implement amount formatting and validation functions for improved number handling ([6fb82f6](https://github.com/mguleryuz/tanstack-effect/commit/6fb82f6f678d6d811bcfc03ff1ee0b8b3ad38710))
+- implement amount formatting and validation functions for improved number handling ([6fb82f6](https://github.com/mguleryuz/tanstack-effect/commit/6fb82f6f678d6d811bcfc03ff1ee0b8b3ad38710))
 
 ### [0.0.13](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.12...v0.0.13) (2025-10-14)
 
-
 ### Features
 
-* add data validation on mount and data change in useSchemaForm hook ([176cf1d](https://github.com/mguleryuz/tanstack-effect/commit/176cf1d6ddc79a5a07e8763bea68a6fe5f65b5ff))
+- add data validation on mount and data change in useSchemaForm hook ([176cf1d](https://github.com/mguleryuz/tanstack-effect/commit/176cf1d6ddc79a5a07e8763bea68a6fe5f65b5ff))
 
 ### [0.0.12](https://github.com/mguleryuz/tanstack-effect/compare/v0.0.11...v0.0.12) (2025-10-10)
 
