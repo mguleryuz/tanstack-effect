@@ -85,6 +85,12 @@ export function apiEffectRunner<
   includeCredentials = false,
   noCache = false
 ): PromiseSuccess<X, Y> {
+  if (process.env.NODE_ENV === 'development') {
+    console.log(
+      `[tanstack-effect] Fetching ${String(section)}.${String(method)}`,
+      params
+    )
+  }
   const program = apiEffect(
     section,
     method,
@@ -98,6 +104,14 @@ export function apiEffectRunner<
   return Effect.runPromise(
     program.pipe(
       Effect.provide(apiLayer),
+      Effect.tapError((error) => {
+        // Always log schema/parsing errors as warnings
+        console.warn(
+          `[tanstack-effect] Error in ${String(section)}.${String(method)}:`,
+          error
+        )
+        return Effect.void
+      }),
       Effect.mapError((error) => new EffectHttpError(error))
     )
   )
