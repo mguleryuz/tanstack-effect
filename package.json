@@ -54,10 +54,10 @@
     "type-fest-4": "npm:type-fest@^4"
   },
   "peerDependencies": {
-    "@effect/platform": "^0.90.10",
+    "@effect/platform": "^0.94.0",
     "@tanstack/react-query": "^5.89.0",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
