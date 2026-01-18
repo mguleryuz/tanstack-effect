@@ -3,7 +3,8 @@
  * Used by SDK consumers in their API routes
  */
 
-import { generateObject } from 'ai'
+import { google } from '@ai-sdk/google'
+import { generateText, Output } from 'ai'
 import { z } from 'zod'
 
 import {
@@ -22,6 +23,7 @@ import type {
 
 /**
  * @description Convert FormFieldDefinition to Zod schema for AI structured output
+ * Includes field descriptions to help the AI understand what each field is for
  */
 function buildZodSchema(
   fields: AIFormFillerRequest['fields']
@@ -32,31 +34,42 @@ function buildZodSchema(
     const field = fields[key]
     let fieldSchema: z.ZodTypeAny
 
+    // Build description from field metadata
+    const description = [
+      field.label || field.key,
+      field.description,
+      field.required ? '(required)' : '(optional)',
+    ]
+      .filter(Boolean)
+      .join(' - ')
+
     switch (field.type) {
       case 'number':
-        fieldSchema = z.number().optional()
+        fieldSchema = z.number().describe(description).optional()
         break
       case 'boolean':
-        fieldSchema = z.boolean().optional()
+        fieldSchema = z.boolean().describe(description).optional()
         break
       case 'array':
-        fieldSchema = z.array(z.unknown()).optional()
+        fieldSchema = z.array(z.unknown()).describe(description).optional()
         break
       case 'object':
-        fieldSchema = z.record(z.unknown()).optional()
+        fieldSchema = z.record(z.unknown()).describe(description).optional()
         break
       case 'literal':
         if (field.literalOptions && field.literalOptions.length > 0) {
+          const enumDesc = `${description}. Valid options: ${field.literalOptions.join(', ')}`
           fieldSchema = z
             .enum(field.literalOptions.map(String) as [string, ...string[]])
+            .describe(enumDesc)
             .optional()
         } else {
-          fieldSchema = z.string().optional()
+          fieldSchema = z.string().describe(description).optional()
         }
         break
       case 'string':
       default:
-        fieldSchema = z.string().optional()
+        fieldSchema = z.string().describe(description).optional()
     }
 
     schemaObj[key] = fieldSchema
@@ -83,17 +96,15 @@ function detectMissingFields(
 /**
  * @description Core function to fill form with AI
  */
+const DEFAULT_MODEL = 'gemini-2.5-flash-lite'
+
 export async function fillFormWithAI(
   request: AIFormFillerRequest,
   config?: AIFormFillerConfig
 ): Promise<AIFormFillerResponse> {
-  const model = config?.model || 'gemini-2.5-flash-lite'
-  const apiKey = config?.apiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY
-
-  if (!apiKey) {
-    throw new Error(
-      'GOOGLE_GENERATIVE_AI_API_KEY not provided and not in environment'
-    )
+  // Verify API key is available (ai-sdk reads from GOOGLE_GENERATIVE_AI_API_KEY)
+  if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    throw new Error('Missing GOOGLE_GENERATIVE_AI_API_KEY environment variable')
   }
 
   try {
@@ -137,16 +148,22 @@ export async function fillFormWithAI(
     // Build the full prompt with context
     const fullUserMessage = userMessage + contextFromHistory
 
-    // Call AI with structured output
+    // Call AI with structured output using Output.object pattern
     const zodSchema = buildZodSchema(request.fields)
 
-    const response = await generateObject({
-      model,
-      schema: zodSchema,
-      prompt: fullUserMessage,
-      system: systemPrompt,
-      temperature: config?.temperature || 0.7,
+    const result = await generateText({
+      model: google(DEFAULT_MODEL),
+      prompt: `${systemPrompt}\n\n${fullUserMessage}`,
+      output: Output.object({
+        schema: zodSchema,
+      }),
     })
+
+    if (!result.output) {
+      throw new Error('AI returned no structured output')
+    }
+
+    const response = { object: result.output }
 
     const filled = response.object as Record<string, unknown>
 

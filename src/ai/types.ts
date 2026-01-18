@@ -56,8 +56,5 @@ export interface AIFormFillerStreamChunk extends Partial<AIFormFillerResponse> {
  * @description Configuration for AI form filler
  */
 export interface AIFormFillerConfig {
-  model?: string
-  apiKey?: string
   temperature?: number
-  maxTokens?: number
 }
