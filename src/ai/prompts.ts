@@ -13,10 +13,12 @@ function formatFieldDescription(
 ): string {
   const lines: string[] = []
 
-  // Field identifier and status
+  // Field identifier and status with clear instruction
   const fieldKey = field.key
-  const status = field.required ? 'REQUIRED' : 'optional'
-  lines.push(`${indent}**${fieldKey}** [${field.type}] (${status})`)
+  const status = field.required
+    ? '⚠️ REQUIRED - leave empty if not in user input'
+    : 'optional - leave empty if not in user input'
+  lines.push(`${indent}• **${fieldKey}** [${field.type}] (${status})`)
 
   // Human-readable label
   if (field.label) {
@@ -25,19 +27,24 @@ function formatFieldDescription(
 
   // Description - this is critical for AI understanding
   if (field.description) {
-    lines.push(`${indent}  Description: ${field.description}`)
+    lines.push(`${indent}  Purpose: ${field.description}`)
   }
 
   // Valid options for choice fields (including arrays with literalOptions)
   if (field.literalOptions && field.literalOptions.length > 0) {
     if (field.type === 'array') {
       lines.push(
-        `${indent}  Select from: ${field.literalOptions.map((opt) => `"${opt}"`).join(', ')}`
+        `${indent}  Valid values: ${field.literalOptions.map((opt) => `"${opt}"`).join(', ')}`
       )
-      lines.push(`${indent}  (Interpret user intent to match valid options)`)
+      lines.push(
+        `${indent}  → Map user's descriptive words to these valid values`
+      )
     } else {
       lines.push(
         `${indent}  Valid options: ${field.literalOptions.map((opt) => `"${opt}"`).join(', ')}`
+      )
+      lines.push(
+        `${indent}  → Choose the option that best matches user's words`
       )
     }
   }
@@ -92,37 +99,43 @@ export function buildSchemaDescription(
  * @description Build the system prompt for form filling
  */
 export function buildSystemPrompt(): string {
-  return `You are an intelligent form-filling assistant. Your task is to extract information from user descriptions and fill out form fields.
+  return `You are an intelligent form-filling assistant. Extract information from user input and map it to form fields.
 
-CRITICAL RULES:
-1. ONLY fill fields with values EXPLICITLY mentioned or clearly implied by the user
-2. NEVER invent placeholder values, sample URLs, or generic examples
-3. NEVER make up discovery queries, hashtags, or content not mentioned by the user
-4. If a value is not in the user's input, LEAVE IT EMPTY - do not guess
+## CORE PRINCIPLES:
 
-READ THE SCHEMA CAREFULLY - each field has:
-- A key and label identifying what it represents
-- A description explaining what it's for
-- Required/optional status  
-- Valid options for choice/enum fields
+### 1. EXTRACT FROM USER INPUT
+- Read the user's message carefully and extract all mentioned values
+- Map user's descriptive language to the closest valid field options
+- Use context clues to understand intent
 
-SEMANTIC INTERPRETATION:
-- Interpret natural language to valid enum options (e.g., "witty" → "witty", "professional" → "professional")
-- Convert language names to ISO codes: "english" → "en", "chinese" → "zh", "spanish" → "es", "french" → "fr", "german" → "de", "japanese" → "ja", "korean" → "ko"
-- Extract product context: If user mentions a blockchain/platform (e.g., "Base", "Binance Smart Chain"), use it to inform relevant fields like discovery queries
-- Match tone descriptions to valid options (e.g., "should be witty" → tone: "witty")
+### 2. NEVER INVENT PLACEHOLDERS  
+These are FORBIDDEN - never use them:
+- ❌ Generic names like "My Product", "Your App", "Example Name"
+- ❌ Placeholder URLs like "https://example.com", "https://placeholder.com"
+- ❌ Generic descriptions like "A tool that helps users"
+- ❌ Sample hashtags, queries, or content the user didn't mention
+- ❌ Any generic/placeholder content not from user input
 
-EXTRACTION RULES:
-1. ACTIVELY LOOK for values that match each field based on its description
-2. For array fields, include ALL mentioned items that match valid options
-3. Extract labeled, quoted, or described values directly
-4. If CURRENT FORM STATE is provided, include those values in your output
-5. If user mentions a concept but doesn't give a specific value, leave it empty for clarification
+### 3. SEMANTIC MAPPING (map user words to valid schema options)
 
-OUTPUT FORMAT:
-- Return a nested JSON object matching the schema structure
-- Numbers as numbers, strings as strings, arrays as arrays
-- ONLY include fields you can confidently fill from the user's input`
+When the schema has enum/literal fields with specific valid options:
+- Read the field's valid options from the schema
+- Map the user's descriptive words to the closest valid option
+- Examples of common mappings:
+  - Language names → ISO codes: "english" → "en", "chinese" → "zh", etc.
+  - Descriptive adjectives → closest enum value
+  - Synonyms → the exact valid option
+
+### 4. WHEN INFO IS NOT PROVIDED
+- If user didn't mention a value for a field → leave it empty/null
+- Empty fields are OK - we will ask follow-up questions
+- Better to leave empty than invent content
+
+## OUTPUT FORMAT:
+Return a nested JSON object with:
+- Values extracted from user input
+- Semantic mappings applied to enum fields
+- Empty/null for fields without user-provided information`
 }
 
 /**
@@ -132,32 +145,35 @@ export function buildUserPrompt(
   userPrompt: string,
   schemaDescription: string
 ): string {
-  return `FORM SCHEMA:
+  return `## USER INPUT:
+
+"""
+${userPrompt}
+"""
+
+## FORM FIELDS TO FILL:
 
 ${schemaDescription}
 
-USER INPUT:
-${userPrompt}
+## INSTRUCTIONS:
 
-TASK: Extract information from the user's input and fill the form fields.
+1. **Read the user input** and extract ALL mentioned information
+2. **Match to schema**: For each field in the schema, look for relevant info in user input
+3. **Map descriptive language** to valid field options:
+   - If schema has enum/literal options, map user's words to the closest valid option
+   - Language names → ISO codes (english→en, chinese→zh, spanish→es, etc.)
+4. **Extract literal values**: Names, URLs, descriptions - only if user explicitly provides them
 
-CRITICAL - DO NOT INVENT VALUES:
-- ONLY use values the user EXPLICITLY provides or clearly implies
-- If the user doesn't mention a URL, DO NOT invent one like "https://example.com"
-- If the user doesn't mention a search query, DO NOT create hashtags or sample queries
-- If a required field has no value in the input, LEAVE IT EMPTY - we will ask the user
+## CRITICAL - DO NOT INVENT:
 
-SEMANTIC INTERPRETATION:
-- "english" → "en", "chinese" → "zh", "spanish" → "es", etc.
-- Match descriptive words to valid enum options ("witty", "friendly", "professional", etc.)
-- If user mentions a platform/blockchain (Base, BSC, Ethereum), note it for relevant context fields
+❌ DO NOT use generic placeholder names
+❌ DO NOT use placeholder URLs like "https://example.com"
+❌ DO NOT use sample content the user didn't mention
+❌ DO NOT invent descriptions if user only gave partial info
 
-EXTRACTION APPROACH:
-1. Read each field's Label and Description to understand what it represents
-2. Scan the user input for ANY mention of relevant information
-3. For choice fields, match user's words to the closest valid option
-4. For arrays, include ALL matching items mentioned
-5. Leave fields empty if no relevant information is present`
+✅ Extract the ACTUAL words user provided
+✅ Map descriptive phrases to the closest valid schema options
+✅ Leave fields empty/null if no relevant info in user input`
 }
 
 /**
@@ -169,29 +185,37 @@ export function buildFollowUpPrompt(
   field: string,
   previousFilled: Record<string, unknown>
 ): string {
-  return `FORM SCHEMA:
+  return `## USER'S NEW INPUT (EXTRACT FROM THIS):
+
+"""
+${userAnswer}
+"""
+${field ? `\n(User is answering about: ${field})` : ''}
+
+## CURRENT FORM STATE (preserve these values):
+
+${JSON.stringify(previousFilled, null, 2)}
+
+## AVAILABLE FORM FIELDS:
 
 ${schemaDescription}
 
-CURRENT FORM STATE:
-${JSON.stringify(previousFilled, null, 2)}
+## YOUR TASK:
 
-USER INPUT: ${userAnswer}
-${field ? `(Answering for: ${field})` : ''}
+Update the form by:
+1. KEEPING all existing values from current state
+2. ADDING/UPDATING only fields the user mentioned in their new input
+3. NEVER inventing placeholder values for fields not mentioned
 
-TASK: Update the form with the user's new input.
+## CRITICAL REMINDERS:
 
-CRITICAL - DO NOT INVENT VALUES:
-- ONLY use values the user EXPLICITLY provides
-- DO NOT invent URLs, queries, or placeholder content
-- If a field has no value mentioned, keep it empty or unchanged
+❌ NEVER invent URLs, hashtags, or placeholder content
+❌ NEVER replace existing values with generic placeholders
+❌ If user didn't provide new info for a field, keep its current value
 
-RULES:
-- Include existing values from current state (preserve what's already filled)
-- Add/update fields based on the new user input
-- Match user's words to valid enum options when applicable
-- Interpret language names as ISO codes ("english" → "en", "chinese" → "zh")
-- Return complete form data as nested JSON`
+✅ Extract only what the user explicitly provides
+✅ Map user words to valid enum options (tone, language codes, etc.)
+✅ Return complete form data as nested JSON`
 }
 
 /**

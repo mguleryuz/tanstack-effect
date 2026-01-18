@@ -22,38 +22,36 @@ import type {
 
 /**
  * @description Build a single field's Zod schema recursively
- * Required fields are marked as required in the schema to encourage the AI to fill them.
- * Optional fields remain optional.
+ * All fields are optional to allow AI to leave them empty when not in user input.
+ * This prevents the AI from inventing placeholder values.
  */
 function buildFieldSchema(
   field: AIFormFillerRequest['fields'][string]
 ): z.ZodTypeAny {
-  // Build description from field metadata
-  const description = [field.label || field.key, field.description]
+  // Build description with extraction guidance
+  const baseDesc = [field.label || field.key, field.description]
     .filter(Boolean)
     .join(' - ')
 
-  // Helper to apply optionality based on field.required
+  // All fields are optional to allow AI to leave them empty when not in user input
   const applyOptional = <T extends z.ZodTypeAny>(schema: T): z.ZodTypeAny => {
-    // If field is NOT required, make it optional
-    // This tells the AI it's okay to skip truly unknown fields
-    return field.required ? schema : schema.optional()
+    return schema.optional().nullable()
   }
 
   switch (field.type) {
     case 'number':
-      return applyOptional(z.number().describe(description))
+      return applyOptional(z.number().describe(baseDesc))
     case 'boolean':
-      return applyOptional(z.boolean().describe(description))
+      return applyOptional(z.boolean().describe(baseDesc))
     case 'array':
       // If array has children (array of objects), build nested schema
       if (field.children && Object.keys(field.children).length > 0) {
         const itemSchema = buildNestedObjectSchema(field.children)
-        return applyOptional(z.array(itemSchema).describe(description))
+        return applyOptional(z.array(itemSchema).describe(baseDesc))
       }
       // For primitive arrays or arrays with literalOptions
       if (field.literalOptions && field.literalOptions.length > 0) {
-        const arrDesc = `${description}. Select from: ${field.literalOptions.join(', ')}. Interpret user intent to match valid options.`
+        const arrDesc = `${baseDesc}. Valid values: ${field.literalOptions.join(', ')}. Interpret user's language to these values.`
         return applyOptional(
           z
             .array(
@@ -62,28 +60,28 @@ function buildFieldSchema(
             .describe(arrDesc)
         )
       }
-      return applyOptional(z.array(z.string()).describe(description))
+      return applyOptional(z.array(z.string()).describe(baseDesc))
     case 'object':
       // If object has children, recursively build the nested schema
       if (field.children && Object.keys(field.children).length > 0) {
         const nestedSchema = buildNestedObjectSchema(field.children)
-        return applyOptional(nestedSchema.describe(description))
+        return applyOptional(nestedSchema.describe(baseDesc))
       }
       // Fallback for objects without defined children
-      return applyOptional(z.record(z.unknown()).describe(description))
+      return applyOptional(z.record(z.unknown()).describe(baseDesc))
     case 'literal':
       if (field.literalOptions && field.literalOptions.length > 0) {
-        const enumDesc = `${description}. Valid options: ${field.literalOptions.join(', ')}. Interpret user intent.`
+        const enumDesc = `${baseDesc}. Valid options: ${field.literalOptions.join(', ')}. Match user's descriptive words to the closest option.`
         return applyOptional(
           z
             .enum(field.literalOptions.map(String) as [string, ...string[]])
             .describe(enumDesc)
         )
       }
-      return applyOptional(z.string().describe(description))
+      return applyOptional(z.string().describe(baseDesc))
     case 'string':
     default:
-      return applyOptional(z.string().describe(description))
+      return applyOptional(z.string().describe(baseDesc))
   }
 }
 
