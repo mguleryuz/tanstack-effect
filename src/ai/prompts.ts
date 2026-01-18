@@ -92,7 +92,13 @@ export function buildSchemaDescription(
  * @description Build the system prompt for form filling
  */
 export function buildSystemPrompt(): string {
-  return `You are an intelligent form-filling assistant. Your task is to extract ALL possible information from user descriptions and fill out form fields.
+  return `You are an intelligent form-filling assistant. Your task is to extract information from user descriptions and fill out form fields.
+
+CRITICAL RULES:
+1. ONLY fill fields with values EXPLICITLY mentioned or clearly implied by the user
+2. NEVER invent placeholder values, sample URLs, or generic examples
+3. NEVER make up discovery queries, hashtags, or content not mentioned by the user
+4. If a value is not in the user's input, LEAVE IT EMPTY - do not guess
 
 READ THE SCHEMA CAREFULLY - each field has:
 - A key and label identifying what it represents
@@ -100,18 +106,23 @@ READ THE SCHEMA CAREFULLY - each field has:
 - Required/optional status  
 - Valid options for choice/enum fields
 
+SEMANTIC INTERPRETATION:
+- Interpret natural language to valid enum options (e.g., "witty" → "witty", "professional" → "professional")
+- Convert language names to ISO codes: "english" → "en", "chinese" → "zh", "spanish" → "es", "french" → "fr", "german" → "de", "japanese" → "ja", "korean" → "ko"
+- Extract product context: If user mentions a blockchain/platform (e.g., "Base", "Binance Smart Chain"), use it to inform relevant fields like discovery queries
+- Match tone descriptions to valid options (e.g., "should be witty" → tone: "witty")
+
 EXTRACTION RULES:
-1. ACTIVELY LOOK for values that match each field based on its description - be thorough
-2. INTERPRET natural language to valid options when the meaning is clear
-3. For array fields, include ALL mentioned items that match the valid options
-4. Extract labeled or quoted values directly
-5. If CURRENT FORM STATE is provided, include those values in your output
-6. ONLY leave fields empty if there's truly no information about them in the input
+1. ACTIVELY LOOK for values that match each field based on its description
+2. For array fields, include ALL mentioned items that match valid options
+3. Extract labeled, quoted, or described values directly
+4. If CURRENT FORM STATE is provided, include those values in your output
+5. If user mentions a concept but doesn't give a specific value, leave it empty for clarification
 
 OUTPUT FORMAT:
 - Return a nested JSON object matching the schema structure
 - Numbers as numbers, strings as strings, arrays as arrays
-- Fill as many fields as possible from the user's input`
+- ONLY include fields you can confidently fill from the user's input`
 }
 
 /**
@@ -128,16 +139,25 @@ ${schemaDescription}
 USER INPUT:
 ${userPrompt}
 
-TASK: Extract ALL information from the user's input and fill the form fields.
+TASK: Extract information from the user's input and fill the form fields.
 
-BE THOROUGH:
-- Read EVERY field in the schema - use the Label and Description to understand what each field represents
-- For each REQUIRED field, actively look for matching content in the user input
-- INTERPRET natural language to valid enum options when the meaning is clear
-- For array fields, include ALL mentioned values that match the valid options
-- Extract labeled or quoted values directly
+CRITICAL - DO NOT INVENT VALUES:
+- ONLY use values the user EXPLICITLY provides or clearly implies
+- If the user doesn't mention a URL, DO NOT invent one like "https://example.com"
+- If the user doesn't mention a search query, DO NOT create hashtags or sample queries
+- If a required field has no value in the input, LEAVE IT EMPTY - we will ask the user
 
-Fill as many fields as possible. Only leave a field empty if there's truly no information about it.`
+SEMANTIC INTERPRETATION:
+- "english" → "en", "chinese" → "zh", "spanish" → "es", etc.
+- Match descriptive words to valid enum options ("witty", "friendly", "professional", etc.)
+- If user mentions a platform/blockchain (Base, BSC, Ethereum), note it for relevant context fields
+
+EXTRACTION APPROACH:
+1. Read each field's Label and Description to understand what it represents
+2. Scan the user input for ANY mention of relevant information
+3. For choice fields, match user's words to the closest valid option
+4. For arrays, include ALL matching items mentioned
+5. Leave fields empty if no relevant information is present`
 }
 
 /**
@@ -160,9 +180,17 @@ USER INPUT: ${userAnswer}
 ${field ? `(Answering for: ${field})` : ''}
 
 TASK: Update the form with the user's new input.
-- Include existing values from current state
+
+CRITICAL - DO NOT INVENT VALUES:
+- ONLY use values the user EXPLICITLY provides
+- DO NOT invent URLs, queries, or placeholder content
+- If a field has no value mentioned, keep it empty or unchanged
+
+RULES:
+- Include existing values from current state (preserve what's already filled)
 - Add/update fields based on the new user input
-- Match input to fields using their descriptions
+- Match user's words to valid enum options when applicable
+- Interpret language names as ISO codes ("english" → "en", "chinese" → "zh")
 - Return complete form data as nested JSON`
 }
 

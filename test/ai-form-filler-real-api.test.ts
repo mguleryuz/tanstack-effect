@@ -487,4 +487,113 @@ describe('AI Form Filler', () => {
     },
     { timeout: 20000 }
   )
+
+  // Test that AI does NOT invent placeholder values for unmentioned fields
+  it.skipIf(shouldSkip)(
+    'should NOT invent placeholder values for fields not mentioned by user',
+    async () => {
+      const formFields = generateFormFieldsWithSchemaAnnotations(
+        {},
+        ComplexFormSchema
+      )
+
+      // Minimal prompt - only mentions product name, description, and languages
+      // Does NOT mention: URL, discovery query, search product, tone, cta style
+      const prompt =
+        'my app is called levr its a token launcher we target base english and chineese'
+
+      const request: AIFormFillerRequest = {
+        prompt,
+        fields: formFields,
+        messages: [{ role: 'user', content: prompt }],
+      }
+
+      const response = await fillFormWithAI(request)
+
+      const marketing = response.filled.marketing as Record<string, unknown>
+      expect(marketing).toBeDefined()
+
+      // Fields that SHOULD be filled from the prompt
+      expect(String(marketing.productName).toLowerCase()).toContain('levr')
+      expect(
+        String(marketing.productDescription).toLowerCase()
+      ).toContain('token')
+
+      // Languages should be interpreted correctly
+      const preferredLangs = marketing.preferredLanguages as string[]
+      if (preferredLangs && preferredLangs.length > 0) {
+        expect(preferredLangs).toContain('en')
+        expect(preferredLangs).toContain('zh')
+      }
+
+      // Fields that should NOT be filled with invented values
+      // The AI should leave these empty or undefined, not invent placeholders
+      const productUrl = marketing.productUrl as string | undefined
+      if (productUrl) {
+        // If filled, it should NOT be a generic placeholder
+        expect(productUrl).not.toContain('example.com')
+        expect(productUrl).not.toContain('myproduct.com')
+        expect(productUrl).not.toContain('placeholder')
+      }
+
+      const discoveryQuery = marketing.discoveryQuery as string | undefined
+      if (discoveryQuery) {
+        // If filled, it should NOT be generic hashtags unrelated to the input
+        expect(discoveryQuery).not.toContain('#buildinpublic')
+        expect(discoveryQuery).not.toContain('#indiehackers')
+      }
+
+      // Form should NOT be complete since required fields are missing
+      expect(response.complete).toBe(false)
+      expect(response.missing.length).toBeGreaterThan(0)
+    },
+    { timeout: 20000 }
+  )
+
+  // Test that AI correctly interprets tone from user description
+  it.skipIf(shouldSkip)(
+    'should correctly interpret tone and context from descriptive prompt',
+    async () => {
+      const formFields = generateFormFieldsWithSchemaAnnotations(
+        {},
+        ComplexFormSchema
+      )
+
+      // Prompt that explicitly mentions tone
+      const prompt = `
+        App is called Levr. It's a token launcher.
+        Product URL: https://levr.xyz
+        It should be witty and friendly.
+        It should reply about how staking and governance is important.
+        Use direct CTAs.
+        Search for Top tweets.
+        Discovery query: #DeFi #tokens
+        Target english speakers.
+      `
+
+      const request: AIFormFillerRequest = {
+        prompt,
+        fields: formFields,
+        messages: [{ role: 'user', content: prompt }],
+      }
+
+      const response = await fillFormWithAI(request)
+
+      const marketing = response.filled.marketing as Record<string, unknown>
+      expect(marketing).toBeDefined()
+
+      // Should pick up the mentioned tone (witty or friendly are both valid)
+      expect(['witty', 'friendly']).toContain(marketing.tone as string)
+
+      // Should pick up direct CTA style
+      expect(marketing.ctaStyle).toBe('direct')
+
+      // Product URL should match what was provided
+      expect(marketing.productUrl).toBe('https://levr.xyz')
+
+      // Discovery query should match what was provided
+      expect(marketing.discoveryQuery).toContain('#DeFi')
+    },
+    { timeout: 20000 }
+  )
 })
