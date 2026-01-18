@@ -43,6 +43,11 @@ export interface AIFormFillerResponse {
   clarifications: ClarificationQuestion[]
   complete: boolean
   assistantMessage?: string
+  /**
+   * @description Human-readable summary of what was filled
+   * @example "Filled 3 fields: projectName, projectType, teamSize"
+   */
+  summary: string
 }
 
 /**

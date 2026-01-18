@@ -57,6 +57,11 @@ export interface UseAIFormFillerReturn<T> {
   clarifications: ClarificationQuestion[]
   messages: AIFormMessage[]
   error: Error | null
+  /**
+   * @description Human-readable summary of last AI action
+   * @example "Filled 3 fields: projectName, projectType, teamSize"
+   */
+  summary: string | null
 
   // Actions
   fillFromPrompt: (prompt: string) => Promise<void>
@@ -86,6 +91,7 @@ export function useAIFormFiller<T>({
   >([])
   const [messages, setMessages] = React.useState<AIFormMessage[]>([])
   const [error, setError] = React.useState<Error | null>(null)
+  const [summary, setSummary] = React.useState<string | null>(null)
 
   // Generate form fields from schema for AI
   const fields = React.useMemo(() => {
@@ -177,10 +183,16 @@ export function useAIFormFiller<T>({
         }
         setData(newData)
 
-        // Add assistant response to messages
+        // Update summary
+        setSummary(response.summary || null)
+
+        // Add assistant response to messages (use summary as content)
         addMessage({
           role: 'assistant',
-          content: response.assistantMessage || JSON.stringify(response.filled),
+          content:
+            response.summary ||
+            response.assistantMessage ||
+            JSON.stringify(response.filled),
           timestamp: new Date().toISOString(),
         })
 
@@ -237,11 +249,16 @@ export function useAIFormFiller<T>({
         }
         setData(mergedData)
 
-        // Add assistant response
+        // Update summary
+        setSummary(response.summary || null)
+
+        // Add assistant response (use summary as content)
         addMessage({
           role: 'assistant',
           content:
-            response.assistantMessage || JSON.stringify(response.filled || {}),
+            response.summary ||
+            response.assistantMessage ||
+            JSON.stringify(response.filled || {}),
           timestamp: new Date().toISOString(),
         })
 
@@ -303,6 +320,7 @@ export function useAIFormFiller<T>({
     setClarifications([])
     setStatus('idle')
     setError(null)
+    setSummary(null)
   }, [initialData])
 
   /**
@@ -326,6 +344,7 @@ export function useAIFormFiller<T>({
     clarifications,
     messages,
     error,
+    summary,
     fillFromPrompt,
     answerClarification,
     askQuestion,

@@ -3,6 +3,7 @@
 import { Schema } from 'effect'
 import * as React from 'react'
 
+import type { AIFormMessage, ClarificationQuestion } from '../ai/types'
 import { stringToNumber, toAmountString } from '../format'
 import type { FormFieldDefinition } from '../schema-form'
 import {
@@ -10,14 +11,86 @@ import {
   getNestedValue,
   setNestedValue,
 } from '../schema-form'
+import type { AIFormFillerStatus } from './use-ai-form-filler'
+import { useAIFormFiller } from './use-ai-form-filler'
+
+/**
+ * @description Conditional hook wrapper for AI form filler
+ * Returns undefined when AI config is not provided
+ */
+function useAIFormFillerConditional<T>(
+  config: SchemaFormAIConfig | undefined,
+  schema: Schema.Schema<T>,
+  data: T | null,
+  onComplete: (filledData: Partial<T>) => void
+): SchemaFormAI | undefined {
+  // Always call the hook but with a dummy endpoint when disabled
+  const result = useAIFormFiller({
+    endpoint: config?.endpoint ?? '__disabled__',
+    schema,
+    initialData: data,
+    maxHistory: config?.maxHistory,
+    onComplete,
+  })
+
+  // Return undefined when AI is not configured
+  if (!config) {
+    return undefined
+  }
+
+  return {
+    status: result.status,
+    messages: result.messages,
+    clarifications: result.clarifications,
+    summary: result.summary,
+    fill: result.fillFromPrompt,
+    answer: result.answerClarification,
+    ask: result.askQuestion,
+    reset: result.reset,
+  }
+}
 
 // Re-export types
 export type { FormFieldDefinition }
+
+/**
+ * @description Optional AI configuration for useSchemaForm
+ */
+export interface SchemaFormAIConfig {
+  /**
+   * @description API endpoint for AI form filler
+   * @example '/api/ai-form-fill'
+   */
+  endpoint: string
+  /**
+   * @description Maximum messages to keep in conversation history
+   * @default 20
+   */
+  maxHistory?: number
+}
+
+/**
+ * @description AI-related return fields when AI is enabled
+ */
+export interface SchemaFormAI {
+  status: AIFormFillerStatus
+  messages: AIFormMessage[]
+  clarifications: ClarificationQuestion[]
+  summary: string | null
+  fill: (prompt: string) => Promise<void>
+  answer: (field: string, value: unknown) => Promise<void>
+  ask: (question: string) => Promise<string>
+  reset: () => void
+}
 
 export interface UseSchemaFormOptions<T> {
   schema: Schema.Schema<T>
   initialData?: T | null
   onValidationChange?: (errors: Record<string, string>) => void
+  /**
+   * @description Optional AI configuration. When provided, enables AI form filling.
+   */
+  ai?: SchemaFormAIConfig
 }
 
 export interface UseSchemaFormReturn<T> {
@@ -31,6 +104,10 @@ export interface UseSchemaFormReturn<T> {
   resetValidation: () => void
   updateFromJson: (jsonString: string) => boolean
   fields: Record<string, FormFieldDefinition>
+  /**
+   * @description AI-related state and actions. Only present when `ai` config is provided.
+   */
+  ai?: SchemaFormAI
 }
 
 // Types used by the example FormBuilder UI
@@ -63,8 +140,9 @@ export function useSchemaForm<T>({
   schema,
   initialData = null,
   onValidationChange,
+  ai: aiConfig,
 }: UseSchemaFormOptions<T>): UseSchemaFormReturn<T> {
-  const [data, setData] = React.useState<T | null>(initialData)
+  const [data, setDataState] = React.useState<T | null>(initialData)
   const [validationErrors, setValidationErrors] = React.useState<
     Record<string, string>
   >({})
@@ -73,6 +151,20 @@ export function useSchemaForm<T>({
   const fields = React.useMemo(() => {
     return generateFormFieldsWithSchemaAnnotations(data ?? {}, schema)
   }, [data, schema])
+
+  // Conditionally use AI form filler when config is provided
+  const aiFillerResult = useAIFormFillerConditional(
+    aiConfig,
+    schema,
+    data,
+    (filledData) => {
+      // When AI fills data, update the form data
+      if (filledData) {
+        setDataState(filledData as T)
+        setHasChanges(true)
+      }
+    }
+  )
 
   /**
    * Parse Effect Schema error messages into human-readable format
@@ -269,6 +361,11 @@ export function useSchemaForm<T>({
     [validateData]
   )
 
+  // Wrapper for setData to keep AI and form in sync
+  const setData = React.useCallback((newData: T | null) => {
+    setDataState(newData)
+  }, [])
+
   return {
     data,
     setData,
@@ -280,5 +377,6 @@ export function useSchemaForm<T>({
     resetValidation,
     updateFromJson,
     fields,
+    ai: aiFillerResult,
   }
 }

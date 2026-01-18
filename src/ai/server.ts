@@ -186,11 +186,29 @@ export async function fillFormWithAI(
       }
     })
 
+    // Generate human-readable summary
+    const filledKeys = Object.keys(filled).filter(
+      (key) => filled[key] !== undefined && filled[key] !== null
+    )
+    let summary: string
+    if (filledKeys.length === 0) {
+      summary = 'No fields were filled'
+    } else if (filledKeys.length === 1) {
+      summary = `Filled 1 field: ${filledKeys[0]}`
+    } else {
+      summary = `Filled ${filledKeys.length} fields: ${filledKeys.join(', ')}`
+    }
+
+    if (missing.length > 0) {
+      summary += `. Missing: ${missing.join(', ')}`
+    }
+
     return {
       filled,
       missing,
       clarifications,
       complete: missing.length === 0,
+      summary,
     }
   } catch (error) {
     console.error('AI form filler error:', error)

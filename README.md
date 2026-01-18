@@ -113,7 +113,7 @@ Available client hooks:
 - `useEffectQuery`
 - `useEffectInfiniteQuery`
 - `useEffectMutation`
-- `useSchemaForm`
+- `useSchemaForm` (supports optional AI integration via `ai` config)
 
 Import them from `tanstack-effect/client`. The main entry `tanstack-effect` is server-safe and used to build the typed client from your `HttpApi` definition.
 
@@ -132,6 +132,130 @@ Using the example `FormBuilder` UI:
 - Supports nested objects, labels, descriptions, simple validation error display, and optional collapsing.
 
 This lets you infer form fields directly from your schema without maintaining separate field configs.
+
+### AI-Powered Form Filling (Optional)
+
+Use AI to fill forms from natural language descriptions. The AI extracts structured data from prompts and generates clarification questions for missing required fields.
+
+**Requirements:** Install optional peer dependencies:
+
+```bash
+bun add ai @ai-sdk/google zod
+```
+
+Set your Google AI API key in your environment:
+
+```bash
+export GOOGLE_GENERATIVE_AI_API_KEY="your-key"
+```
+
+#### Server-side: Create an API route
+
+```ts
+// app/api/ai-form-fill/route.ts
+import { createAIFormFillerHandler } from 'tanstack-effect'
+
+const handler = createAIFormFillerHandler()
+
+export const POST = handler
+```
+
+#### Client-side: Enable AI on useSchemaForm
+
+Simply add the `ai` option to `useSchemaForm` to enable AI form filling:
+
+```tsx
+import { useSchemaForm } from 'tanstack-effect/client'
+import { Schema } from 'effect'
+
+const ProjectSchema = Schema.Struct({
+  projectName: Schema.String.pipe(
+    Schema.annotations({ description: 'Name of the project' })
+  ),
+  projectType: Schema.Literal('web', 'mobile', 'desktop').pipe(
+    Schema.annotations({ description: 'Type of project' })
+  ),
+  teamSize: Schema.Number.pipe(
+    Schema.annotations({ description: 'Number of team members' })
+  ),
+})
+
+function ProjectForm() {
+  const form = useSchemaForm({
+    schema: ProjectSchema,
+    // Enable AI by providing the endpoint
+    ai: {
+      endpoint: '/api/ai-form-fill',
+    },
+  })
+
+  return (
+    <div>
+      {/* AI chat input */}
+      <input
+        placeholder="Describe your project..."
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && form.ai) {
+            form.ai.fill(e.currentTarget.value)
+          }
+        }}
+      />
+
+      {form.ai?.status === 'filling' && <p>AI is filling the form...</p>}
+
+      {/* Show AI summary when complete */}
+      {form.ai?.summary && <p>{form.ai.summary}</p>}
+
+      {/* Clarification questions */}
+      {form.ai?.clarifications.map((q) => (
+        <div key={q.field}>
+          <p>{q.question}</p>
+          {q.options?.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => form.ai?.answer(q.field, opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      ))}
+
+      {/* Form data is available in form.data */}
+      {form.data && <pre>{JSON.stringify(form.data, null, 2)}</pre>}
+    </div>
+  )
+}
+```
+
+#### AI state and actions
+
+When `ai` is configured, `form.ai` provides:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `status` | `'idle' \| 'filling' \| 'clarifying' \| 'complete' \| 'error'` | Current AI status |
+| `messages` | `AIFormMessage[]` | Conversation history |
+| `clarifications` | `ClarificationQuestion[]` | Pending questions for user |
+| `summary` | `string \| null` | Human-readable summary (e.g. "Filled 3 fields: projectName, projectType, teamSize") |
+| `fill(prompt)` | `(prompt: string) => Promise<void>` | Fill form from natural language |
+| `answer(field, value)` | `(field: string, value: unknown) => Promise<void>` | Answer a clarification |
+| `ask(question)` | `(question: string) => Promise<string>` | Ask a follow-up question |
+| `reset()` | `() => void` | Reset AI state and messages |
+
+#### How it works
+
+1. User provides a natural language prompt: *"Building a mobile app called TravelBuddy with 5 developers"*
+2. AI extracts structured data: `{ projectName: "TravelBuddy", projectType: "mobile", teamSize: 5 }`
+3. `form.data` is updated automatically with the filled values
+4. If required fields are missing, `form.ai.clarifications` contains questions
+5. User answers clarifications, AI fills remaining fields
+6. `form.ai.summary` shows what was filled (e.g. "Filled 3 fields: projectName, projectType, teamSize")
+
+The AI respects your Effect Schema:
+- Enum/literal types are constrained to valid options
+- Field descriptions help the AI understand what data to extract
+- Required vs optional fields determine when clarifications are needed
 
 #### Important: Schema Annotations with `optionalWith`
 
