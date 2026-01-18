@@ -15,7 +15,6 @@ import {
   buildUserPrompt,
 } from './prompts'
 import type {
-  AIFormFillerConfig,
   AIFormFillerRequest,
   AIFormFillerResponse,
   AIFormFillerStreamChunk,
@@ -99,8 +98,7 @@ function detectMissingFields(
 const DEFAULT_MODEL = 'gemini-2.5-flash-lite'
 
 export async function fillFormWithAI(
-  request: AIFormFillerRequest,
-  config?: AIFormFillerConfig
+  request: AIFormFillerRequest
 ): Promise<AIFormFillerResponse> {
   // Verify API key is available (ai-sdk reads from GOOGLE_GENERATIVE_AI_API_KEY)
   if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
@@ -154,9 +152,8 @@ export async function fillFormWithAI(
     const result = await generateText({
       model: google(DEFAULT_MODEL),
       prompt: `${systemPrompt}\n\n${fullUserMessage}`,
-      output: Output.object({
-        schema: zodSchema,
-      }),
+
+      output: Output.object({ schema: zodSchema as any }),
     })
 
     if (!result.output) {
@@ -205,11 +202,10 @@ export async function fillFormWithAI(
  * @description Streaming version for progressive updates
  */
 export async function* streamFormFill(
-  request: AIFormFillerRequest,
-  config?: AIFormFillerConfig
+  request: AIFormFillerRequest
 ): AsyncGenerator<AIFormFillerStreamChunk> {
   try {
-    const result = await fillFormWithAI(request, config)
+    const result = await fillFormWithAI(request)
 
     // Yield filled fields as they're being processed
     if (Object.keys(result.filled).length > 0) {
@@ -243,7 +239,7 @@ export async function* streamFormFill(
 /**
  * @description Convenience handler for Next.js/Express routes
  */
-export function createAIFormFillerHandler(config?: AIFormFillerConfig) {
+export function createAIFormFillerHandler() {
   return async (req: Request): Promise<Response> => {
     try {
       if (req.method !== 'POST') {
@@ -263,7 +259,7 @@ export function createAIFormFillerHandler(config?: AIFormFillerConfig) {
         )
       }
 
-      const response = await fillFormWithAI(body, config)
+      const response = await fillFormWithAI(body)
 
       return new Response(JSON.stringify(response), {
         status: 200,

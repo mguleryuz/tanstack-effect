@@ -51,10 +51,3 @@ export interface AIFormFillerResponse {
 export interface AIFormFillerStreamChunk extends Partial<AIFormFillerResponse> {
   done?: boolean
 }
-
-/**
- * @description Configuration for AI form filler
- */
-export interface AIFormFillerConfig {
-  temperature?: number
-}
