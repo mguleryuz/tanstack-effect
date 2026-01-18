@@ -5,52 +5,85 @@
 import type { FormFieldDefinition } from '../schema-form'
 
 /**
+ * @description Format a single field for AI consumption
+ */
+function formatFieldDescription(
+  field: FormFieldDefinition,
+  indent = ''
+): string {
+  const lines: string[] = []
+
+  // Field identifier and status
+  const fieldKey = field.key
+  const status = field.required ? 'REQUIRED' : 'optional'
+  lines.push(`${indent}**${fieldKey}** [${field.type}] (${status})`)
+
+  // Human-readable label
+  if (field.label) {
+    lines.push(`${indent}  Label: ${field.label}`)
+  }
+
+  // Description - this is critical for AI understanding
+  if (field.description) {
+    lines.push(`${indent}  Description: ${field.description}`)
+  }
+
+  // Valid options for choice fields (including arrays with literalOptions)
+  if (field.literalOptions && field.literalOptions.length > 0) {
+    if (field.type === 'array') {
+      lines.push(
+        `${indent}  Select from: ${field.literalOptions.map((opt) => `"${opt}"`).join(', ')}`
+      )
+      lines.push(`${indent}  (Interpret user intent to match valid options)`)
+    } else {
+      lines.push(
+        `${indent}  Valid options: ${field.literalOptions.map((opt) => `"${opt}"`).join(', ')}`
+      )
+    }
+  }
+
+  // Constraints
+  if (field.min !== undefined || field.max !== undefined) {
+    const constraints: string[] = []
+    if (field.min !== undefined) constraints.push(`min: ${field.min}`)
+    if (field.max !== undefined) constraints.push(`max: ${field.max}`)
+    lines.push(`${indent}  Constraints: ${constraints.join(', ')}`)
+  }
+
+  return lines.join('\n')
+}
+
+/**
+ * @description Recursively collect all fields including nested children
+ */
+function collectAllFieldsForDescription(
+  fields: Record<string, FormFieldDefinition>,
+  result: FormFieldDefinition[] = []
+): FormFieldDefinition[] {
+  for (const field of Object.values(fields)) {
+    result.push(field)
+    // Recursively collect children
+    if (field.children) {
+      collectAllFieldsForDescription(field.children, result)
+    }
+  }
+  return result
+}
+
+/**
  * @description Build a schema description for the AI
+ * Formats each field with its description to help AI understand context
+ * Recursively includes all nested children fields
  */
 export function buildSchemaDescription(
   fields: Record<string, FormFieldDefinition>
 ): string {
-  const fieldDescriptions = Object.entries(fields)
-    .map(([key, field]) => {
-      const parts: string[] = []
+  // Collect all fields including nested ones
+  const allFields = collectAllFieldsForDescription(fields)
 
-      parts.push(`"${field.key || key}"`)
-
-      if (field.type) {
-        parts.push(`Type: ${field.type}`)
-      }
-
-      if (field.required) {
-        parts.push('(REQUIRED)')
-      } else {
-        parts.push('(optional)')
-      }
-
-      if (field.label) {
-        parts.push(`Label: ${field.label}`)
-      }
-
-      if (field.description) {
-        parts.push(`Description: ${field.description}`)
-      }
-
-      if (field.literalOptions && field.literalOptions.length > 0) {
-        parts.push(
-          `Valid options: ${field.literalOptions.map((opt) => `"${opt}"`).join(', ')}`
-        )
-      }
-
-      if (field.min !== undefined) {
-        parts.push(`Min: ${field.min}`)
-      }
-
-      if (field.max !== undefined) {
-        parts.push(`Max: ${field.max}`)
-      }
-
-      return `- ${parts.join(' | ')}`
-    })
-    .join('\n')
+  const fieldDescriptions = allFields
+    .map((field) => formatFieldDescription(field))
+    .join('\n\n')
 
   return fieldDescriptions
 }
@@ -59,29 +92,26 @@ export function buildSchemaDescription(
  * @description Build the system prompt for form filling
  */
 export function buildSystemPrompt(): string {
-  return `You are an intelligent form-filling assistant. Your task is to extract information from user descriptions and fill out form fields.
+  return `You are an intelligent form-filling assistant. Your task is to extract ALL possible information from user descriptions and fill out form fields.
 
-When given a form schema and a user's input:
-1. Carefully read the user's input to find values for each form field
-2. Extract explicit and implicit information that maps to form fields
-3. Fill in as many fields as you can with confidence
+READ THE SCHEMA CAREFULLY - each field has:
+- A key and label identifying what it represents
+- A description explaining what it's for
+- Required/optional status  
+- Valid options for choice/enum fields
 
-CRITICAL RULES:
-- Return ONLY a flat JSON object with field names as keys and extracted values as values
-- DO NOT wrap your response in any structure like "filled", "data", "response", etc.
-- For enum/choice fields, only use valid options from the schema
-- Use the exact field names from the schema (e.g., "projectName", "teamSize")
-- Extract information even if the user doesn't use the exact field names
-- For numbers, return actual number values (not strings)
-- For strings, return clean string values
+EXTRACTION RULES:
+1. ACTIVELY LOOK for values that match each field based on its description - be thorough
+2. INTERPRET natural language to valid options when the meaning is clear
+3. For array fields, include ALL mentioned items that match the valid options
+4. Extract labeled or quoted values directly
+5. If CURRENT FORM STATE is provided, include those values in your output
+6. ONLY leave fields empty if there's truly no information about them in the input
 
-Example - if user says "I'm building a mobile app called MyApp with 5 developers using Flutter":
-{
-  "projectName": "MyApp",
-  "projectType": "mobile",
-  "framework": "Flutter",
-  "teamSize": 5
-}`
+OUTPUT FORMAT:
+- Return a nested JSON object matching the schema structure
+- Numbers as numbers, strings as strings, arrays as arrays
+- Fill as many fields as possible from the user's input`
 }
 
 /**
@@ -91,25 +121,23 @@ export function buildUserPrompt(
   userPrompt: string,
   schemaDescription: string
 ): string {
-  return `Form Schema:
+  return `FORM SCHEMA:
+
 ${schemaDescription}
 
-User Request:
+USER INPUT:
 ${userPrompt}
 
-Please analyze the user request and fill in the form fields with appropriate values based on the provided information. Extract values for each field from the user's request.
+TASK: Extract ALL information from the user's input and fill the form fields.
 
-IMPORTANT: Return a flat JSON object with field names as keys and extracted values as values. Do NOT wrap the response in any structure like "filled" or "data". Just return the field values directly.
+BE THOROUGH:
+- Read EVERY field in the schema - use the Label and Description to understand what each field represents
+- For each REQUIRED field, actively look for matching content in the user input
+- INTERPRET natural language to valid enum options when the meaning is clear
+- For array fields, include ALL mentioned values that match the valid options
+- Extract labeled or quoted values directly
 
-Example output format:
-{
-  "projectName": "MyApp",
-  "projectType": "web",
-  "framework": "React",
-  "teamSize": 5
-}
-
-Fill in every field you can determine from the user's request.`
+Fill as many fields as possible. Only leave a field empty if there's truly no information about it.`
 }
 
 /**
@@ -121,26 +149,21 @@ export function buildFollowUpPrompt(
   field: string,
   previousFilled: Record<string, unknown>
 ): string {
-  return `Form Schema:
+  return `FORM SCHEMA:
+
 ${schemaDescription}
 
-Previously filled values:
+CURRENT FORM STATE:
 ${JSON.stringify(previousFilled, null, 2)}
 
-User's new input: ${userAnswer}
-${field ? `This is for field "${field}"` : ''}
+USER INPUT: ${userAnswer}
+${field ? `(Answering for: ${field})` : ''}
 
-Combine the previous values with the new information and return the complete form data. Extract any additional fields you can from the user's input.
-
-IMPORTANT: Return a flat JSON object with field names as keys and extracted values as values. Merge the previous values with any new values extracted from the user's input.
-
-Example output format:
-{
-  "projectName": "MyApp",
-  "projectType": "web",
-  "framework": "React",
-  "teamSize": 5
-}`
+TASK: Update the form with the user's new input.
+- Include existing values from current state
+- Add/update fields based on the new user input
+- Match input to fields using their descriptions
+- Return complete form data as nested JSON`
 }
 
 /**

@@ -21,75 +21,174 @@ import type {
 } from './types'
 
 /**
+ * @description Build a single field's Zod schema recursively
+ * Required fields are marked as required in the schema to encourage the AI to fill them.
+ * Optional fields remain optional.
+ */
+function buildFieldSchema(
+  field: AIFormFillerRequest['fields'][string]
+): z.ZodTypeAny {
+  // Build description from field metadata
+  const description = [field.label || field.key, field.description]
+    .filter(Boolean)
+    .join(' - ')
+
+  // Helper to apply optionality based on field.required
+  const applyOptional = <T extends z.ZodTypeAny>(schema: T): z.ZodTypeAny => {
+    // If field is NOT required, make it optional
+    // This tells the AI it's okay to skip truly unknown fields
+    return field.required ? schema : schema.optional()
+  }
+
+  switch (field.type) {
+    case 'number':
+      return applyOptional(z.number().describe(description))
+    case 'boolean':
+      return applyOptional(z.boolean().describe(description))
+    case 'array':
+      // If array has children (array of objects), build nested schema
+      if (field.children && Object.keys(field.children).length > 0) {
+        const itemSchema = buildNestedObjectSchema(field.children)
+        return applyOptional(z.array(itemSchema).describe(description))
+      }
+      // For primitive arrays or arrays with literalOptions
+      if (field.literalOptions && field.literalOptions.length > 0) {
+        const arrDesc = `${description}. Select from: ${field.literalOptions.join(', ')}. Interpret user intent to match valid options.`
+        return applyOptional(
+          z
+            .array(
+              z.enum(field.literalOptions.map(String) as [string, ...string[]])
+            )
+            .describe(arrDesc)
+        )
+      }
+      return applyOptional(z.array(z.string()).describe(description))
+    case 'object':
+      // If object has children, recursively build the nested schema
+      if (field.children && Object.keys(field.children).length > 0) {
+        const nestedSchema = buildNestedObjectSchema(field.children)
+        return applyOptional(nestedSchema.describe(description))
+      }
+      // Fallback for objects without defined children
+      return applyOptional(z.record(z.unknown()).describe(description))
+    case 'literal':
+      if (field.literalOptions && field.literalOptions.length > 0) {
+        const enumDesc = `${description}. Valid options: ${field.literalOptions.join(', ')}. Interpret user intent.`
+        return applyOptional(
+          z
+            .enum(field.literalOptions.map(String) as [string, ...string[]])
+            .describe(enumDesc)
+        )
+      }
+      return applyOptional(z.string().describe(description))
+    case 'string':
+    default:
+      return applyOptional(z.string().describe(description))
+  }
+}
+
+/**
+ * @description Build a nested object schema from children fields
+ */
+function buildNestedObjectSchema(
+  children: Record<string, AIFormFillerRequest['fields'][string]>
+): z.ZodObject<Record<string, z.ZodTypeAny>> {
+  const schemaObj: Record<string, z.ZodTypeAny> = {}
+
+  Object.entries(children).forEach(([key, childField]) => {
+    // Use the simple key name (last part after dots)
+    const simpleKey = key.includes('.') ? key.split('.').pop()! : key
+    schemaObj[simpleKey] = buildFieldSchema(childField)
+  })
+
+  return z.object(schemaObj)
+}
+
+/**
  * @description Convert FormFieldDefinition to Zod schema for AI structured output
  * Includes field descriptions to help the AI understand what each field is for
+ * Recursively handles nested objects and arrays
  */
 function buildZodSchema(
   fields: AIFormFillerRequest['fields']
 ): z.ZodType<Record<string, unknown>> {
   const schemaObj: Record<string, z.ZodTypeAny> = {}
 
-  Object.entries(fields).forEach(([key]) => {
-    const field = fields[key]
-    let fieldSchema: z.ZodTypeAny
-
-    // Build description from field metadata
-    const description = [
-      field.label || field.key,
-      field.description,
-      field.required ? '(required)' : '(optional)',
-    ]
-      .filter(Boolean)
-      .join(' - ')
-
-    switch (field.type) {
-      case 'number':
-        fieldSchema = z.number().describe(description).optional()
-        break
-      case 'boolean':
-        fieldSchema = z.boolean().describe(description).optional()
-        break
-      case 'array':
-        fieldSchema = z.array(z.unknown()).describe(description).optional()
-        break
-      case 'object':
-        fieldSchema = z.record(z.unknown()).describe(description).optional()
-        break
-      case 'literal':
-        if (field.literalOptions && field.literalOptions.length > 0) {
-          const enumDesc = `${description}. Valid options: ${field.literalOptions.join(', ')}`
-          fieldSchema = z
-            .enum(field.literalOptions.map(String) as [string, ...string[]])
-            .describe(enumDesc)
-            .optional()
-        } else {
-          fieldSchema = z.string().describe(description).optional()
-        }
-        break
-      case 'string':
-      default:
-        fieldSchema = z.string().describe(description).optional()
+  // Only process root-level fields (no dots in key)
+  Object.entries(fields).forEach(([key, field]) => {
+    if (!key.includes('.')) {
+      schemaObj[key] = buildFieldSchema(field)
     }
-
-    schemaObj[key] = fieldSchema
   })
 
   return z.object(schemaObj) as z.ZodType<Record<string, unknown>>
 }
 
 /**
+ * @description Get value at nested path like "marketing.productName"
+ */
+function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  const parts = path.split('.')
+  let current: unknown = obj
+
+  for (const part of parts) {
+    if (current === null || current === undefined) {
+      return undefined
+    }
+    if (typeof current !== 'object') {
+      return undefined
+    }
+    current = (current as Record<string, unknown>)[part]
+  }
+
+  return current
+}
+
+/**
+ * @description Recursively collect all fields including nested ones
+ */
+function collectAllFields(
+  fields: AIFormFillerRequest['fields'],
+  result: Array<{
+    key: string
+    field: AIFormFillerRequest['fields'][string]
+  }> = []
+): Array<{ key: string; field: AIFormFillerRequest['fields'][string] }> {
+  for (const [key, field] of Object.entries(fields)) {
+    result.push({ key, field })
+
+    // Recursively collect children
+    if (field.children && Object.keys(field.children).length > 0) {
+      collectAllFields(field.children, result)
+    }
+  }
+  return result
+}
+
+/**
  * @description Detect which required fields are missing from filled data
+ * Handles both flat keys and nested paths (e.g., "marketing.productName")
+ * Returns array of objects with both key and label for proper lookups
  */
 function detectMissingFields(
   fields: AIFormFillerRequest['fields'],
   filled: Record<string, unknown>
-): string[] {
-  return Object.entries(fields)
-    .filter(([key]) => {
-      const field = fields[key]
-      return field.required && !filled[key]
+): Array<{ key: string; label: string }> {
+  // Collect all fields including nested children
+  const allFields = collectAllFields(fields)
+
+  return allFields
+    .filter(({ key, field }) => {
+      if (!field.required) return false
+
+      // Check nested path
+      const value = getNestedValue(filled, key)
+      return value === undefined || value === null || value === ''
     })
-    .map(([, field]) => field.key || '')
+    .map(({ key, field }) => ({
+      key,
+      label: field.label || field.key || key,
+    }))
 }
 
 /**
@@ -122,6 +221,12 @@ export async function fillFormWithAI(
       }>
     )
 
+    // Include current form state as context for the AI
+    const currentStateContext =
+      request.partialData && Object.keys(request.partialData).length > 0
+        ? `\n\nCurrent Form State (use as context, include in output):\n${JSON.stringify(request.partialData, null, 2)}`
+        : ''
+
     if (request.messages && request.messages.length > 0) {
       // This is a follow-up - find the most recent user message
       const lastUserMessage = request.messages
@@ -137,10 +242,13 @@ export async function fillFormWithAI(
           request.partialData || {}
         )
       } else {
-        userMessage = buildUserPrompt(request.prompt, schemaDescription)
+        userMessage =
+          buildUserPrompt(request.prompt, schemaDescription) +
+          currentStateContext
       }
     } else {
-      userMessage = buildUserPrompt(request.prompt, schemaDescription)
+      userMessage =
+        buildUserPrompt(request.prompt, schemaDescription) + currentStateContext
     }
 
     // Build the full prompt with context
@@ -160,21 +268,19 @@ export async function fillFormWithAI(
       throw new Error('AI returned no structured output')
     }
 
-    const response = { object: result.output }
+    // AI output already includes existing values (provided in context)
+    // The AI is instructed to preserve them
+    const filled = result.output as Record<string, unknown>
 
-    const filled = response.object as Record<string, unknown>
-
-    // Detect missing required fields
-    const missing = detectMissingFields(request.fields, filled)
+    // Detect missing required fields from the MERGED result
+    const missingFields = detectMissingFields(request.fields, filled)
 
     // Generate clarification questions for missing required fields
-    const clarifications = missing.map((fieldName) => {
-      const field = Object.values(request.fields).find(
-        (f) => f.key === fieldName
-      )
+    const clarifications = missingFields.map((missing) => {
+      const field = request.fields[missing.key]
       return {
-        field: fieldName,
-        question: `Please provide information for: ${field?.label || fieldName}`,
+        field: missing.key,
+        question: `Please provide: ${missing.label}${field?.description ? ` - ${field.description}` : ''}`,
         type: (field?.type === 'literal' ? 'choice' : 'text') as
           | 'choice'
           | 'text',
@@ -186,28 +292,67 @@ export async function fillFormWithAI(
       }
     })
 
-    // Generate human-readable summary
-    const filledKeys = Object.keys(filled).filter(
-      (key) => filled[key] !== undefined && filled[key] !== null
-    )
-    let summary: string
-    if (filledKeys.length === 0) {
-      summary = 'No fields were filled'
-    } else if (filledKeys.length === 1) {
-      summary = `Filled 1 field: ${filledKeys[0]}`
-    } else {
-      summary = `Filled ${filledKeys.length} fields: ${filledKeys.join(', ')}`
+    // Convert to label strings for backward compatibility
+    const missingLabels = missingFields.map((m) => m.label)
+
+    // Generate detailed, conversational summary explaining what was filled
+    const summaryParts: string[] = []
+
+    // Describe what was filled with context
+    const filledDescriptions: string[] = []
+    for (const [key, value] of Object.entries(filled)) {
+      if (value !== undefined && value !== null) {
+        const field = request.fields[key]
+        if (field && typeof value !== 'object') {
+          filledDescriptions.push(`**${field.label || key}**: ${value}`)
+        } else if (typeof value === 'object' && value !== null) {
+          // For nested objects, describe the contents
+          const nested = value as Record<string, unknown>
+          const nestedDescs: string[] = []
+          for (const [nKey, nValue] of Object.entries(nested)) {
+            if (nValue !== undefined && nValue !== null) {
+              const fullKey = `${key}.${nKey}`
+              const nestedField =
+                field?.children?.[fullKey] || field?.children?.[nKey]
+              const label = nestedField?.label || nKey
+              if (Array.isArray(nValue)) {
+                nestedDescs.push(`${label}: ${nValue.join(', ')}`)
+              } else {
+                nestedDescs.push(`${label}: ${nValue}`)
+              }
+            }
+          }
+          if (nestedDescs.length > 0) {
+            filledDescriptions.push(
+              `**${field?.label || key}**:\n${nestedDescs.map((d) => `  • ${d}`).join('\n')}`
+            )
+          }
+        }
+      }
     }
 
-    if (missing.length > 0) {
-      summary += `. Missing: ${missing.join(', ')}`
+    if (filledDescriptions.length > 0) {
+      summaryParts.push(
+        `I've filled in the following based on your input:\n\n${filledDescriptions.join('\n\n')}`
+      )
+    } else {
+      summaryParts.push("I couldn't extract any field values from your input.")
     }
+
+    // Add context about missing fields
+    if (missingLabels.length > 0) {
+      summaryParts.push(
+        `\n\nI still need information for: ${missingLabels.join(', ')}`
+      )
+    }
+
+    const summary = summaryParts.join('')
 
     return {
       filled,
-      missing,
+      missing: missingLabels,
       clarifications,
-      complete: missing.length === 0,
+      complete: missingLabels.length === 0,
       summary,
     }
   } catch (error) {

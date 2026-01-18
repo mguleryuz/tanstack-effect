@@ -22,7 +22,8 @@ function useAIFormFillerConditional<T>(
   config: SchemaFormAIConfig | undefined,
   schema: Schema.Schema<T>,
   data: T | null,
-  onComplete: (filledData: Partial<T>) => void
+  onComplete: (filledData: Partial<T>) => void,
+  onDataChange: (filledData: Partial<T>) => void
 ): SchemaFormAI | undefined {
   // Always call the hook but with a dummy endpoint when disabled
   const result = useAIFormFiller({
@@ -30,7 +31,9 @@ function useAIFormFillerConditional<T>(
     schema,
     initialData: data,
     maxHistory: config?.maxHistory,
+    excludeFields: config?.excludeFields,
     onComplete,
+    onDataChange,
   })
 
   // Return undefined when AI is not configured
@@ -67,6 +70,11 @@ export interface SchemaFormAIConfig {
    * @default 20
    */
   maxHistory?: number
+  /**
+   * @description Fields to exclude from AI processing (e.g. hidden fields)
+   * These fields will not be sent to the AI and will not be filled by it
+   */
+  excludeFields?: string[]
 }
 
 /**
@@ -152,18 +160,24 @@ export function useSchemaForm<T>({
     return generateFormFieldsWithSchemaAnnotations(data ?? {}, schema)
   }, [data, schema])
 
+  // Handle AI data changes - update form in real-time
+  const handleAIDataChange = React.useCallback(
+    (filledData: Partial<T>) => {
+      if (filledData) {
+        setDataState(filledData as T)
+        setHasChanges(true)
+      }
+    },
+    [setDataState, setHasChanges]
+  )
+
   // Conditionally use AI form filler when config is provided
   const aiFillerResult = useAIFormFillerConditional(
     aiConfig,
     schema,
     data,
-    (filledData) => {
-      // When AI fills data, update the form data
-      if (filledData) {
-        setDataState(filledData as T)
-        setHasChanges(true)
-      }
-    }
+    handleAIDataChange, // onComplete
+    handleAIDataChange // onDataChange - same handler for real-time sync
   )
 
   /**

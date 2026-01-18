@@ -9,6 +9,7 @@ import type {
   AIFormMessage,
   ClarificationQuestion,
 } from '../ai/types'
+import type { FormFieldDefinition } from '../schema-form'
 import { generateFormFieldsWithSchemaAnnotations } from '../schema-form'
 import type { UseSchemaFormReturn } from './use-schema-form'
 
@@ -38,6 +39,16 @@ export interface UseAIFormFillerOptions<T> {
    * @description Callback when AI completes filling
    */
   onComplete?: (data: Partial<T>) => void
+  /**
+   * @description Callback whenever data changes (for real-time form sync)
+   * Called every time AI fills any fields, even if not complete
+   */
+  onDataChange?: (data: Partial<T>) => void
+  /**
+   * @description Fields to exclude from AI processing (e.g. hidden fields)
+   * These fields will not be sent to the AI and will not be filled by it
+   */
+  excludeFields?: string[]
 }
 
 export type AIFormFillerStatus =
@@ -83,6 +94,8 @@ export function useAIFormFiller<T>({
   initialData = null,
   maxHistory = 20,
   onComplete,
+  onDataChange,
+  excludeFields = [],
 }: UseAIFormFillerOptions<T>): UseAIFormFillerReturn<T> {
   const [status, setStatus] = React.useState<AIFormFillerStatus>('idle')
   const [data, setData] = React.useState<Partial<T> | null>(initialData || null)
@@ -93,10 +106,31 @@ export function useAIFormFiller<T>({
   const [error, setError] = React.useState<Error | null>(null)
   const [summary, setSummary] = React.useState<string | null>(null)
 
-  // Generate form fields from schema for AI
+  // Set of excluded fields for quick lookup
+  const excludeFieldsSet = React.useMemo(
+    () => new Set(excludeFields),
+    [excludeFields]
+  )
+
+  // Generate form fields from schema for AI, filtering out excluded fields
   const fields = React.useMemo(() => {
-    return generateFormFieldsWithSchemaAnnotations(data ?? {}, schema)
-  }, [data, schema])
+    const allFields = generateFormFieldsWithSchemaAnnotations(
+      data ?? {},
+      schema
+    )
+    // Filter out excluded fields (both exact matches and nested paths)
+    const filtered: typeof allFields = {}
+    for (const [key, value] of Object.entries(allFields)) {
+      // Check if this field or any parent path is excluded
+      const isExcluded = excludeFields.some(
+        (excluded) => key === excluded || key.startsWith(`${excluded}.`)
+      )
+      if (!isExcluded) {
+        filtered[key] = value
+      }
+    }
+    return filtered
+  }, [data, schema, excludeFields])
 
   /**
    * @description Add message to history with size limit
@@ -157,6 +191,131 @@ export function useAIFormFiller<T>({
   )
 
   /**
+   * @description Filter out excluded fields from AI response
+   */
+  const filterExcludedFromResponse = React.useCallback(
+    (filled: Record<string, unknown>): Record<string, unknown> => {
+      const filtered: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(filled)) {
+        if (!excludeFieldsSet.has(key)) {
+          filtered[key] = value
+        }
+      }
+      return filtered
+    },
+    [excludeFieldsSet]
+  )
+
+  /**
+   * @description Deep merge two objects, preserving existing values
+   */
+  const deepMergeData = React.useCallback(
+    (
+      existing: Record<string, unknown>,
+      newData: Record<string, unknown>
+    ): Record<string, unknown> => {
+      const result = { ...existing }
+
+      for (const [key, newValue] of Object.entries(newData)) {
+        if (newValue === undefined || newValue === null) {
+          continue
+        }
+
+        const existingValue = existing[key]
+
+        // If both are objects (not arrays), deep merge
+        if (
+          typeof existingValue === 'object' &&
+          existingValue !== null &&
+          !Array.isArray(existingValue) &&
+          typeof newValue === 'object' &&
+          newValue !== null &&
+          !Array.isArray(newValue)
+        ) {
+          result[key] = deepMergeData(
+            existingValue as Record<string, unknown>,
+            newValue as Record<string, unknown>
+          )
+        } else {
+          // Otherwise, new value takes precedence
+          result[key] = newValue
+        }
+      }
+
+      return result
+    },
+    []
+  )
+
+  /**
+   * @description Find field definition by label (searches nested children too)
+   */
+  const findFieldByLabel = React.useCallback(
+    (
+      label: string,
+      fieldsToSearch: Record<string, FormFieldDefinition>
+    ): FormFieldDefinition | undefined => {
+      for (const field of Object.values(fieldsToSearch)) {
+        if (field.label === label || field.key === label) {
+          return field
+        }
+        // Check children for nested fields
+        if (field.children) {
+          const found = findFieldByLabel(label, field.children)
+          if (found) return found
+        }
+      }
+      return undefined
+    },
+    []
+  )
+
+  /**
+   * @description Build a friendly message asking for missing fields with descriptions
+   */
+  const buildMissingFieldsMessage = React.useCallback(
+    (missing: string[], filledSummary?: string): string => {
+      const parts: string[] = []
+
+      if (filledSummary) {
+        parts.push(filledSummary)
+        parts.push('')
+      }
+
+      if (missing.length === 1) {
+        const fieldDef = findFieldByLabel(missing[0], fields)
+        const desc = fieldDef?.description ? ` - ${fieldDef.description}` : ''
+        parts.push(
+          `I still need one more piece of information: **${missing[0]}**${desc}`
+        )
+      } else {
+        parts.push(`I still need the following information:`)
+        parts.push('')
+        missing.forEach((label) => {
+          const fieldDef = findFieldByLabel(label, fields)
+          if (fieldDef?.description) {
+            parts.push(`• **${label}**: ${fieldDef.description}`)
+          } else {
+            parts.push(`• **${label}**`)
+          }
+          // Add valid options for choice fields
+          if (fieldDef?.literalOptions && fieldDef.literalOptions.length > 0) {
+            parts.push(
+              `  Options: ${fieldDef.literalOptions.map((o) => `"${o}"`).join(', ')}`
+            )
+          }
+        })
+      }
+
+      parts.push('')
+      parts.push('Please provide this information in your next message.')
+
+      return parts.join('\n')
+    },
+    [fields, findFieldByLabel]
+  )
+
+  /**
    * @description Fill form from user prompt
    */
   const fillFromPrompt = React.useCallback(
@@ -164,6 +323,8 @@ export function useAIFormFiller<T>({
       try {
         setStatus('filling')
         setError(null)
+        // Clear any existing clarifications - we use chat messages now
+        setClarifications([])
 
         // Add user prompt to messages
         addMessage({
@@ -172,111 +333,78 @@ export function useAIFormFiller<T>({
           timestamp: new Date().toISOString(),
         })
 
-        // Call AI
-        const response = await callAI(prompt)
+        // Call AI with current data as context
+        const response = await callAI(prompt, data || undefined)
         if (!response) return
 
-        // Update data with filled fields
-        const newData: Partial<T> = {
-          ...data,
-          ...response.filled,
-        }
+        // Filter out excluded fields from AI response
+        const filteredFilled = filterExcludedFromResponse(response.filled)
+
+        // Deep merge: keep existing data, add new filled values
+        const newData = deepMergeData(
+          (data || {}) as Record<string, unknown>,
+          filteredFilled
+        ) as Partial<T>
         setData(newData)
+
+        // Notify parent of data change immediately (for real-time form sync)
+        onDataChange?.(newData)
 
         // Update summary
         setSummary(response.summary || null)
 
-        // Add assistant response to messages (use summary as content)
-        addMessage({
-          role: 'assistant',
-          content:
-            response.summary ||
-            response.assistantMessage ||
-            JSON.stringify(response.filled),
-          timestamp: new Date().toISOString(),
-        })
-
-        // Handle clarifications or completion
-        if (response.clarifications && response.clarifications.length > 0) {
-          setClarifications(response.clarifications)
-          setStatus('clarifying')
-        } else if (response.complete) {
+        // Check if complete
+        if (response.complete || response.missing.length === 0) {
+          // All done!
+          addMessage({
+            role: 'assistant',
+            content:
+              response.summary || "Perfect! I've filled in all the fields.",
+            timestamp: new Date().toISOString(),
+          })
           setStatus('complete')
           onComplete?.(newData)
         } else {
-          setStatus('idle')
+          // Still missing fields - ask for them in a conversational message
+          const missingMessage = buildMissingFieldsMessage(
+            response.missing,
+            response.summary
+          )
+          addMessage({
+            role: 'assistant',
+            content: missingMessage,
+            timestamp: new Date().toISOString(),
+          })
+          setStatus('idle') // Ready for user to respond
         }
       } catch (err) {
         setStatus('error')
       }
     },
-    [data, callAI, addMessage, onComplete]
+    [
+      data,
+      callAI,
+      addMessage,
+      onComplete,
+      onDataChange,
+      filterExcludedFromResponse,
+      buildMissingFieldsMessage,
+    ]
   )
 
   /**
-   * @description Answer a clarification question
+   * @description Answer a clarification question (legacy - now just forwards to fillFromPrompt)
+   * @deprecated Use fillFromPrompt directly - the conversational flow handles everything
    */
   const answerClarification = React.useCallback(
     async (field: string, value: unknown) => {
-      try {
-        setStatus('filling')
-
-        // Add answer to messages
-        const answerMessage = `For field "${field}": ${JSON.stringify(value)}`
-        addMessage({
-          role: 'user',
-          content: answerMessage,
-          timestamp: new Date().toISOString(),
-        })
-
-        // Update data with the answer
-        const newData: Partial<T> = {
-          ...data,
-          [field]: value,
-        }
-
-        // Call AI with updated context
-        const response = await callAI(
-          'Continue filling the form with the provided information',
-          newData
-        )
-        if (!response) return
-
-        // Merge results
-        const mergedData: Partial<T> = {
-          ...newData,
-          ...response.filled,
-        }
-        setData(mergedData)
-
-        // Update summary
-        setSummary(response.summary || null)
-
-        // Add assistant response (use summary as content)
-        addMessage({
-          role: 'assistant',
-          content:
-            response.summary ||
-            response.assistantMessage ||
-            JSON.stringify(response.filled || {}),
-          timestamp: new Date().toISOString(),
-        })
-
-        // Handle next state
-        if (response.clarifications && response.clarifications.length > 0) {
-          setClarifications(response.clarifications)
-          setStatus('clarifying')
-        } else if (response.complete) {
-          setStatus('complete')
-          onComplete?.(mergedData)
-        } else {
-          setStatus('idle')
-        }
-      } catch (err) {
-        setStatus('error')
-      }
+      // Format the answer as a natural message and use fillFromPrompt
+      const displayValue =
+        typeof value === 'string' ? value : JSON.stringify(value)
+      const fieldName = field.split('.').pop() || field
+      await fillFromPrompt(`${fieldName}: ${displayValue}`)
     },
-    [data, callAI, addMessage, onComplete]
+    [fillFromPrompt]
   )
 
   /**
