@@ -400,9 +400,38 @@ export async function* streamFormFill(
 }
 
 /**
- * @description Convenience handler for Next.js/Express routes
+ * @description Options for createAIFormFillerHandler
  */
-export function createAIFormFillerHandler() {
+export interface AIFormFillerHandlerOptions {
+  /**
+   * @description Custom authentication function
+   * Return true if authenticated, false otherwise
+   * If not provided, no authentication is performed
+   */
+  authenticate?: (req: Request) => Promise<boolean> | boolean
+}
+
+/**
+ * @description Convenience handler for Next.js/Express routes
+ * @param options - Handler configuration options
+ * @returns Request handler function
+ * @example
+ * // Next.js App Router with authentication
+ * import { createAIFormFillerHandler } from 'tanstack-effect'
+ * import { auth } from '@/auth'
+ *
+ * const handler = createAIFormFillerHandler({
+ *   authenticate: async () => {
+ *     const session = await auth()
+ *     return !!session?.user
+ *   }
+ * })
+ *
+ * export const POST = handler
+ */
+export function createAIFormFillerHandler(
+  options?: AIFormFillerHandlerOptions
+) {
   return async (req: Request): Promise<Response> => {
     try {
       if (req.method !== 'POST') {
@@ -410,6 +439,17 @@ export function createAIFormFillerHandler() {
           status: 405,
           headers: { 'Content-Type': 'application/json' },
         })
+      }
+
+      // Handle authentication if provided
+      if (options?.authenticate) {
+        const isAuthenticated = await options.authenticate(req)
+        if (!isAuthenticated) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
       }
 
       const body = (await req.json()) as AIFormFillerRequest
