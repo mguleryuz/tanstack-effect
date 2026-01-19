@@ -1,225 +1,234 @@
 /**
  * @description Prompt templates for AI form filler
+ *
+ * ╔══════════════════════════════════════════════════════════════════════════════╗
+ * ║                              ⚠️  WARNING  ⚠️                                  ║
+ * ║                                                                              ║
+ * ║  THIS IS A GENERIC MODULE - DO NOT ADD HARDCODED FIELD NAMES OR VALUES!     ║
+ * ║                                                                              ║
+ * ║  ❌ NO hardcoded field names (e.g., "productName", "discoveryQuery")         ║
+ * ║  ❌ NO hardcoded enum values (e.g., "friendly", "professional")              ║
+ * ║  ❌ NO domain-specific examples (e.g., "Breadcrumb", "#BSC")                 ║
+ * ║  ❌ NO brand names or product references                                     ║
+ * ║                                                                              ║
+ * ║  ✅ Reference "the schema" or "field descriptions" generically              ║
+ * ║  ✅ Use patterns like "name fields", "URL fields", "description fields"     ║
+ * ║  ✅ Keep examples abstract (e.g., "called X", "it's a Y")                   ║
+ * ║                                                                              ║
+ * ║  The schema description (built from FormFieldDefinition) provides all       ║
+ * ║  field-specific context the AI needs. Prompts should remain schema-agnostic.║
+ * ╚══════════════════════════════════════════════════════════════════════════════╝
  */
 
 import type { FormFieldDefinition } from '../schema-form'
 
 /**
- * @description Format a single field for AI consumption
+ * @description Format a field with proper indentation for nested structure
  */
-function formatFieldDescription(
-  field: FormFieldDefinition,
-  indent = ''
-): string {
-  const lines: string[] = []
+function formatField(field: FormFieldDefinition, indent = ''): string {
+  const simpleKey = field.key.includes('.')
+    ? field.key.split('.').pop()!
+    : field.key
 
-  // Field identifier and status with clear instruction
-  const fieldKey = field.key
-  const status = field.required
-    ? '⚠️ REQUIRED - leave empty if not in user input'
-    : 'optional - leave empty if not in user input'
-  lines.push(`${indent}• **${fieldKey}** [${field.type}] (${status})`)
+  let line = `${indent}"${simpleKey}"`
 
-  // Human-readable label
-  if (field.label) {
-    lines.push(`${indent}  Label: ${field.label}`)
-  }
-
-  // Description - this is critical for AI understanding
-  if (field.description) {
-    lines.push(`${indent}  Purpose: ${field.description}`)
-  }
-
-  // Valid options for choice fields (including arrays with literalOptions)
+  // Add type hint
   if (field.literalOptions && field.literalOptions.length > 0) {
-    if (field.type === 'array') {
-      lines.push(
-        `${indent}  Valid values: ${field.literalOptions.map((opt) => `"${opt}"`).join(', ')}`
-      )
-      lines.push(
-        `${indent}  → Map user's descriptive words to these valid values`
-      )
-    } else {
-      lines.push(
-        `${indent}  Valid options: ${field.literalOptions.map((opt) => `"${opt}"`).join(', ')}`
-      )
-      lines.push(
-        `${indent}  → Choose the option that best matches user's words`
-      )
-    }
+    line += `: ${field.literalOptions.map((o) => `"${o}"`).join(' | ')}`
+  } else if (field.type === 'array') {
+    line += `: [...]`
+  } else if (field.type === 'object') {
+    line += `: { ... }`
+  } else {
+    line += `: ${field.type}`
   }
 
-  // Constraints
-  if (field.min !== undefined || field.max !== undefined) {
-    const constraints: string[] = []
-    if (field.min !== undefined) constraints.push(`min: ${field.min}`)
-    if (field.max !== undefined) constraints.push(`max: ${field.max}`)
-    lines.push(`${indent}  Constraints: ${constraints.join(', ')}`)
+  // Add description as comment
+  if (field.description) {
+    line += `  // ${field.description}`
   }
 
-  return lines.join('\n')
+  return line
 }
 
 /**
- * @description Recursively collect all fields including nested children
- */
-function collectAllFieldsForDescription(
-  fields: Record<string, FormFieldDefinition>,
-  result: FormFieldDefinition[] = []
-): FormFieldDefinition[] {
-  for (const field of Object.values(fields)) {
-    result.push(field)
-    // Recursively collect children
-    if (field.children) {
-      collectAllFieldsForDescription(field.children, result)
-    }
-  }
-  return result
-}
-
-/**
- * @description Build a schema description for the AI
- * Formats each field with its description to help AI understand context
- * Recursively includes all nested children fields
+ * @description Build schema description showing nested structure
  */
 export function buildSchemaDescription(
   fields: Record<string, FormFieldDefinition>
 ): string {
-  // Collect all fields including nested ones
-  const allFields = collectAllFieldsForDescription(fields)
+  const lines: string[] = ['{']
 
-  const fieldDescriptions = allFields
-    .map((field) => formatFieldDescription(field))
-    .join('\n\n')
+  // Process root-level fields only (no dots in key)
+  Object.entries(fields).forEach(([key, field]) => {
+    if (key.includes('.')) return
 
-  return fieldDescriptions
+    if (field.type === 'object' && field.children) {
+      // Object with children - show nested structure
+      lines.push(`  "${key}": {`)
+      if (field.description) {
+        lines.push(`    // ${field.description}`)
+      }
+
+      // Add children with proper indentation
+      Object.values(field.children).forEach((child) => {
+        lines.push(formatField(child, '    '))
+      })
+
+      lines.push('  },')
+    } else {
+      // Simple field
+      lines.push(formatField(field, '  ') + ',')
+    }
+  })
+
+  lines.push('}')
+  return lines.join('\n')
 }
 
 /**
  * @description Build the system prompt for form filling
  */
 export function buildSystemPrompt(): string {
-  return `You are an intelligent form-filling assistant. Extract information from user input and map it to form fields.
+  return `You are a form-filling assistant. Extract data ONLY from what the user explicitly says.
 
-## CORE PRINCIPLES:
+EXTRACTION PATTERNS - extract these when user says:
+- "called X" or "named X" → productName = X
+- "it's a X" or "it does X" or "X tool" → productDescription = that phrase
+- "target X" or "search for X" or "find X" → discoveryQuery = X
+- "reply by X" or "reply with X" or "want it to reply X" → replyContext = that description
+- "friendly/professional/witty" → tone = that word
 
-### 1. EXTRACT FROM USER INPUT
-- Read the user's message carefully and extract all mentioned values
-- Map user's descriptive language to the closest valid field options
-- Use context clues to understand intent
+CRITICAL RULES:
+✓ Extract MULTIPLE fields from one sentence
+✓ Use user's EXACT words for string fields (productDescription, replyContext, etc.)
+✓ ONLY fill fields the user mentioned
 
-### 2. NEVER INVENT PLACEHOLDERS  
-These are FORBIDDEN - never use them:
-- ❌ Generic names like "My Product", "Your App", "Example Name"
-- ❌ Placeholder URLs like "https://example.com", "https://placeholder.com"
-- ❌ Generic descriptions like "A tool that helps users"
-- ❌ Sample hashtags, queries, or content the user didn't mention
-- ❌ Any generic/placeholder content not from user input
-
-### 3. SEMANTIC MAPPING (map user words to valid schema options)
-
-When the schema has enum/literal fields with specific valid options:
-- Read the field's valid options from the schema
-- Map the user's descriptive words to the closest valid option
-- Examples of common mappings:
-  - Language names → ISO codes: "english" → "en", "chinese" → "zh", etc.
-  - Descriptive adjectives → closest enum value
-  - Synonyms → the exact valid option
-
-### 4. WHEN INFO IS NOT PROVIDED
-- If user didn't mention a value for a field → leave it empty/null
-- Empty fields are OK - we will ask follow-up questions
-- Better to leave empty than invent content
-
-## OUTPUT FORMAT:
-Return a nested JSON object with:
-- Values extracted from user input
-- Semantic mappings applied to enum fields
-- Empty/null for fields without user-provided information`
+✗ NEVER invent URLs - leave productUrl empty unless user provides one
+✗ NEVER fill options/numbers unless user specifies them
+✗ NEVER guess or make up values`
 }
 
 /**
- * @description Build user prompt for initial fill attempt
+ * @description Build user prompt for initial fill attempt (legacy)
  */
 export function buildUserPrompt(
   userPrompt: string,
   schemaDescription: string
 ): string {
-  return `## USER INPUT:
+  return buildUnifiedPrompt({
+    userPrompt,
+    schemaDescription,
+    currentData: {},
+    history: [],
+  })
+}
 
-"""
-${userPrompt}
-"""
+/**
+ * @description Unified prompt builder - simple CRUD approach
+ */
+export function buildUnifiedPrompt(params: {
+  userPrompt: string
+  schemaDescription: string
+  currentData: Record<string, unknown>
+  history: Array<{ role: 'user' | 'assistant'; content: string }>
+}): string {
+  const { userPrompt, schemaDescription, currentData } = params
 
-## FORM FIELDS TO FILL:
+  let prompt = `You extract form data from natural language.
+
+## FORM SCHEMA:
 
 ${schemaDescription}
 
-## INSTRUCTIONS:
+## EXTRACTION PATTERNS:
 
-1. **Read the user input** and extract ALL mentioned information
-2. **Match to schema**: For each field in the schema, look for relevant info in user input
-3. **Map descriptive language** to valid field options:
-   - If schema has enum/literal options, map user's words to the closest valid option
-   - Language names → ISO codes (english→en, chinese→zh, spanish→es, etc.)
-4. **Extract literal values**: Names, URLs, descriptions - only if user explicitly provides them
+Match these patterns in user text:
+- "called X", "named X", "is called X" → productName = X
+- "it's a X", "is a X", "X tool", "X platform" → productDescription = that phrase
+- "target X", "focus on X", "for X chain" → discoveryQuery = X
+- "reply X", "want it to reply X", "respond by X" → replyContext = the description
+- "friendly", "professional", "witty" → tone = that word
 
-## CRITICAL - DO NOT INVENT:
+## CURRENT DATA:
 
-❌ DO NOT use generic placeholder names
-❌ DO NOT use placeholder URLs like "https://example.com"
-❌ DO NOT use sample content the user didn't mention
-❌ DO NOT invent descriptions if user only gave partial info
+${JSON.stringify(currentData, null, 2)}
 
-✅ Extract the ACTUAL words user provided
-✅ Map descriptive phrases to the closest valid schema options
-✅ Leave fields empty/null if no relevant info in user input`
+## NOW EXTRACT FROM:
+
+"${userPrompt}"
+
+Return JSON with CURRENT DATA values + all extracted fields.`
+
+  return prompt
 }
 
 /**
  * @description Build continuation prompt for follow-up answers
+ * For long-running conversations: schema once, partialData always, messages always
  */
 export function buildFollowUpPrompt(
-  schemaDescription: string,
-  userAnswer: string,
-  field: string,
-  previousFilled: Record<string, unknown>
+  userMessage: string,
+  currentData: Record<string, unknown>,
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>,
+  options: {
+    includeSchema?: boolean
+    schemaDescription?: string
+    maxMessages?: number
+  } = {}
 ): string {
-  return `## USER'S NEW INPUT (EXTRACT FROM THIS):
+  const {
+    includeSchema = false,
+    schemaDescription = '',
+    maxMessages = 10,
+  } = options
 
-"""
-${userAnswer}
-"""
-${field ? `\n(User is answering about: ${field})` : ''}
+  // Build conversation context (limited to recent messages, excluding the current one)
+  const recentHistory = conversationHistory.slice(-maxMessages)
+  const historyContext =
+    recentHistory.length > 0
+      ? recentHistory
+          .map(
+            (msg) =>
+              `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`
+          )
+          .join('\n')
+      : ''
 
-## CURRENT FORM STATE (preserve these values):
+  let prompt = ''
 
-${JSON.stringify(previousFilled, null, 2)}
+  // Include schema only if requested (first message in conversation)
+  if (includeSchema && schemaDescription) {
+    prompt += `## FORM FIELDS:\n\n${schemaDescription}\n\n`
+  }
 
-## AVAILABLE FORM FIELDS:
+  // Always include current form state
+  prompt += `## CURRENT FORM STATE:\n\n${JSON.stringify(currentData, null, 2)}\n\n`
 
-${schemaDescription}
+  // Include conversation history if exists
+  if (historyContext) {
+    prompt += `## CONVERSATION HISTORY:\n\n${historyContext}\n\n`
+  }
 
-## YOUR TASK:
+  // Current user message
+  prompt += `## USER MESSAGE:\n\n"${userMessage}"\n\n`
 
-Update the form by:
-1. KEEPING all existing values from current state
-2. ADDING/UPDATING only fields the user mentioned in their new input
-3. NEVER inventing placeholder values for fields not mentioned
+  // Extraction task
+  prompt += `## TASK:
 
-## CRITICAL REMINDERS:
+Extract information from the user's message and merge with current form state.
 
-❌ NEVER invent URLs, hashtags, or placeholder content
-❌ NEVER replace existing values with generic placeholders
-❌ If user didn't provide new info for a field, keep its current value
+1. Match user's words to field names (case-insensitive: "reply context" → replyContext)
+2. Parse patterns like "X is Y" or "set X to Y"
+3. PRESERVE all existing values from CURRENT FORM STATE
+4. ADD/UPDATE only fields mentioned by user
+5. Return complete merged JSON`
 
-✅ Extract only what the user explicitly provides
-✅ Map user words to valid enum options (tone, language codes, etc.)
-✅ Return complete form data as nested JSON`
+  return prompt
 }
 
 /**
- * @description Build context from conversation history
+ * @description Build context from conversation history (legacy, kept for compatibility)
  */
 export function buildContextFromHistory(
   history: Array<{ role: 'user' | 'assistant'; content: string }>

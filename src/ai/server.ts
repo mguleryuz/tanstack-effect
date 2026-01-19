@@ -4,15 +4,12 @@
  */
 
 import { google } from '@ai-sdk/google'
-import { generateText, Output } from 'ai'
-import { z } from 'zod'
+import { generateText, jsonSchema, Output } from 'ai'
 
 import {
-  buildContextFromHistory,
-  buildFollowUpPrompt,
   buildSchemaDescription,
   buildSystemPrompt,
-  buildUserPrompt,
+  buildUnifiedPrompt,
 } from './prompts'
 import type {
   AIFormFillerRequest,
@@ -21,105 +18,92 @@ import type {
 } from './types'
 
 /**
- * @description Build a single field's Zod schema recursively
- * All fields are optional to allow AI to leave them empty when not in user input.
- * This prevents the AI from inventing placeholder values.
+ * @description Build JSON Schema property from field definition
+ * Note: Gemini has strict JSON Schema requirements - no nullable types
  */
-function buildFieldSchema(
+function buildJsonSchemaProperty(
   field: AIFormFillerRequest['fields'][string]
-): z.ZodTypeAny {
-  // Build description with extraction guidance
-  const baseDesc = [field.label || field.key, field.description]
-    .filter(Boolean)
-    .join(' - ')
+): Record<string, unknown> {
+  const prop: Record<string, unknown> = {}
 
-  // All fields are optional to allow AI to leave them empty when not in user input
-  const applyOptional = <T extends z.ZodTypeAny>(schema: T): z.ZodTypeAny => {
-    return schema.optional().nullable()
+  if (field.description) {
+    prop.description = field.description
   }
+
+  // Mark as nullable for Gemini
+  prop.nullable = true
 
   switch (field.type) {
     case 'number':
-      return applyOptional(z.number().describe(baseDesc))
+      prop.type = 'number'
+      break
     case 'boolean':
-      return applyOptional(z.boolean().describe(baseDesc))
+      prop.type = 'boolean'
+      break
     case 'array':
-      // If array has children (array of objects), build nested schema
-      if (field.children && Object.keys(field.children).length > 0) {
-        const itemSchema = buildNestedObjectSchema(field.children)
-        return applyOptional(z.array(itemSchema).describe(baseDesc))
-      }
-      // For primitive arrays or arrays with literalOptions
+      prop.type = 'array'
       if (field.literalOptions && field.literalOptions.length > 0) {
-        const arrDesc = `${baseDesc}. Valid values: ${field.literalOptions.join(', ')}. Interpret user's language to these values.`
-        return applyOptional(
-          z
-            .array(
-              z.enum(field.literalOptions.map(String) as [string, ...string[]])
-            )
-            .describe(arrDesc)
-        )
+        prop.items = { type: 'string', enum: field.literalOptions }
+      } else {
+        prop.items = { type: 'string' }
       }
-      return applyOptional(z.array(z.string()).describe(baseDesc))
+      break
     case 'object':
-      // If object has children, recursively build the nested schema
+      prop.type = 'object'
       if (field.children && Object.keys(field.children).length > 0) {
-        const nestedSchema = buildNestedObjectSchema(field.children)
-        return applyOptional(nestedSchema.describe(baseDesc))
+        prop.properties = buildJsonSchemaProperties(field.children)
       }
-      // Fallback for objects without defined children
-      return applyOptional(z.record(z.unknown()).describe(baseDesc))
+      break
     case 'literal':
+      prop.type = 'string'
       if (field.literalOptions && field.literalOptions.length > 0) {
-        const enumDesc = `${baseDesc}. Valid options: ${field.literalOptions.join(', ')}. Match user's descriptive words to the closest option.`
-        return applyOptional(
-          z
-            .enum(field.literalOptions.map(String) as [string, ...string[]])
-            .describe(enumDesc)
-        )
+        prop.enum = field.literalOptions
       }
-      return applyOptional(z.string().describe(baseDesc))
+      break
     case 'string':
     default:
-      return applyOptional(z.string().describe(baseDesc))
+      prop.type = 'string'
   }
+
+  return prop
 }
 
 /**
- * @description Build a nested object schema from children fields
+ * @description Build JSON Schema properties from nested children
  */
-function buildNestedObjectSchema(
+function buildJsonSchemaProperties(
   children: Record<string, AIFormFillerRequest['fields'][string]>
-): z.ZodObject<Record<string, z.ZodTypeAny>> {
-  const schemaObj: Record<string, z.ZodTypeAny> = {}
+): Record<string, unknown> {
+  const properties: Record<string, unknown> = {}
 
-  Object.entries(children).forEach(([key, childField]) => {
-    // Use the simple key name (last part after dots)
+  Object.entries(children).forEach(([key, field]) => {
     const simpleKey = key.includes('.') ? key.split('.').pop()! : key
-    schemaObj[simpleKey] = buildFieldSchema(childField)
+    properties[simpleKey] = buildJsonSchemaProperty(field)
   })
 
-  return z.object(schemaObj)
+  return properties
 }
 
 /**
- * @description Convert FormFieldDefinition to Zod schema for AI structured output
- * Includes field descriptions to help the AI understand what each field is for
- * Recursively handles nested objects and arrays
+ * @description Convert FormFieldDefinition to JSON Schema
+ * Exported for testing
  */
-function buildZodSchema(
+export function buildJsonSchema(
   fields: AIFormFillerRequest['fields']
-): z.ZodType<Record<string, unknown>> {
-  const schemaObj: Record<string, z.ZodTypeAny> = {}
+): Record<string, unknown> {
+  const properties: Record<string, unknown> = {}
 
   // Only process root-level fields (no dots in key)
   Object.entries(fields).forEach(([key, field]) => {
     if (!key.includes('.')) {
-      schemaObj[key] = buildFieldSchema(field)
+      properties[key] = buildJsonSchemaProperty(field)
     }
   })
 
-  return z.object(schemaObj) as z.ZodType<Record<string, unknown>>
+  return {
+    type: 'object',
+    properties,
+  }
 }
 
 /**
@@ -192,7 +176,7 @@ function detectMissingFields(
 /**
  * @description Core function to fill form with AI
  */
-const DEFAULT_MODEL = 'gemini-2.5-flash-lite'
+const DEFAULT_MODEL = 'gemini-2.5-flash'
 
 export async function fillFormWithAI(
   request: AIFormFillerRequest
@@ -205,61 +189,34 @@ export async function fillFormWithAI(
   try {
     const schemaDescription = buildSchemaDescription(request.fields)
     const systemPrompt = buildSystemPrompt()
+    const currentData = request.partialData || {}
 
-    // Build user message based on whether this is initial or follow-up
-    let userMessage: string
-    // Filter out system messages for AI SDK compatibility
-    const historyForContext = (request.messages || []).filter(
-      (m) => m.role !== 'system'
-    )
-    const contextFromHistory = buildContextFromHistory(
-      historyForContext as Array<{
-        role: 'user' | 'assistant'
-        content: string
-      }>
-    )
+    // Filter conversation history (exclude system messages)
+    const history = (request.messages || [])
+      .filter((m) => m.role !== 'system')
+      .slice(-10) as Array<{ role: 'user' | 'assistant'; content: string }>
 
-    // Include current form state as context for the AI
-    const currentStateContext =
-      request.partialData && Object.keys(request.partialData).length > 0
-        ? `\n\nCurrent Form State (use as context, include in output):\n${JSON.stringify(request.partialData, null, 2)}`
-        : ''
+    // Simple unified prompt: always include schema + currentData + history
+    const userMessage = buildUnifiedPrompt({
+      userPrompt: request.prompt,
+      schemaDescription,
+      currentData,
+      history,
+    })
 
-    if (request.messages && request.messages.length > 0) {
-      // This is a follow-up - find the most recent user message
-      const lastUserMessage = request.messages
-        .slice()
-        .reverse()
-        .find((m) => m.role === 'user')
+    const fullUserMessage = userMessage
 
-      if (lastUserMessage) {
-        userMessage = buildFollowUpPrompt(
-          schemaDescription,
-          lastUserMessage.content,
-          '', // field name would need to be extracted
-          request.partialData || {}
-        )
-      } else {
-        userMessage =
-          buildUserPrompt(request.prompt, schemaDescription) +
-          currentStateContext
-      }
-    } else {
-      userMessage =
-        buildUserPrompt(request.prompt, schemaDescription) + currentStateContext
-    }
-
-    // Build the full prompt with context
-    const fullUserMessage = userMessage + contextFromHistory
-
-    // Call AI with structured output using Output.object pattern
-    const zodSchema = buildZodSchema(request.fields)
+    // Build JSON Schema for structured output
+    const schema = buildJsonSchema(request.fields)
 
     const result = await generateText({
       model: google(DEFAULT_MODEL),
       prompt: `${systemPrompt}\n\n${fullUserMessage}`,
-
-      output: Output.object({ schema: zodSchema as any }),
+      // Temperature 0 for most deterministic extraction
+      temperature: 0,
+      output: Output.object({
+        schema: jsonSchema(schema as Parameters<typeof jsonSchema>[0]),
+      }),
     })
 
     if (!result.output) {
@@ -337,12 +294,7 @@ export async function fillFormWithAI(
       summaryParts.push("I couldn't extract any field values from your input.")
     }
 
-    // Add context about missing fields
-    if (missingLabels.length > 0) {
-      summaryParts.push(
-        `\n\nI still need information for: ${missingLabels.join(', ')}`
-      )
-    }
+    // Missing fields info is added by the hook with more detail
 
     const summary = summaryParts.join('')
 

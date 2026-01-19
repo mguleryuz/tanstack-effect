@@ -31,7 +31,8 @@ export interface UseAIFormFillerOptions<T> {
    */
   initialData?: T | null
   /**
-   * @description Maximum number of messages to keep in history
+   * @description Maximum number of messages to keep in UI history
+   * Note: Messages are only for UI display, not sent to AI (CRUD approach)
    * @default 20
    */
   maxHistory?: number
@@ -151,18 +152,22 @@ export function useAIFormFiller<T>({
 
   /**
    * @description Call the AI form filler API
+   * Uses CRUD approach: sends schema + currentData + prompt on every call
+   * No conversation history needed - currentData is the source of truth
    */
   const callAI = React.useCallback(
     async (
       prompt: string,
-      partialData?: Record<string, unknown>
+      currentData?: Record<string, unknown>
     ): Promise<AIFormFillerResponse | null> => {
       try {
+        // CRUD approach: always send schema + current data + user prompt
+        // No messages history - simpler and more reliable
         const request: AIFormFillerRequest = {
           prompt,
           fields,
-          messages,
-          partialData: partialData || data || undefined,
+          messages: [], // Empty - we use currentData instead
+          partialData: currentData || (data as Record<string, unknown>) || {},
         }
 
         const response = await fetch(endpoint, {
@@ -187,7 +192,7 @@ export function useAIFormFiller<T>({
         throw errorObj
       }
     },
-    [endpoint, fields, messages, data]
+    [endpoint, fields, data]
   )
 
   /**
@@ -307,9 +312,6 @@ export function useAIFormFiller<T>({
         })
       }
 
-      parts.push('')
-      parts.push('Please provide this information in your next message.')
-
       return parts.join('\n')
     },
     [fields, findFieldByLabel]
@@ -317,37 +319,41 @@ export function useAIFormFiller<T>({
 
   /**
    * @description Fill form from user prompt
+   * Uses CRUD approach: AI receives schema + currentData + prompt and returns merged result
    */
   const fillFromPrompt = React.useCallback(
     async (prompt: string) => {
       try {
         setStatus('filling')
         setError(null)
-        // Clear any existing clarifications - we use chat messages now
         setClarifications([])
 
-        // Add user prompt to messages
+        // Add user prompt to UI messages (for display only)
         addMessage({
           role: 'user',
           content: prompt,
           timestamp: new Date().toISOString(),
         })
 
-        // Call AI with current data as context
-        const response = await callAI(prompt, data || undefined)
+        // Call AI with current data - AI returns merged result
+        const response = await callAI(
+          prompt,
+          (data || {}) as Record<string, unknown>
+        )
         if (!response) return
 
         // Filter out excluded fields from AI response
         const filteredFilled = filterExcludedFromResponse(response.filled)
 
-        // Deep merge: keep existing data, add new filled values
+        // AI already returns merged data (CRUD approach)
+        // Just deep merge to ensure we preserve any fields AI didn't return
         const newData = deepMergeData(
           (data || {}) as Record<string, unknown>,
           filteredFilled
         ) as Partial<T>
         setData(newData)
 
-        // Notify parent of data change immediately (for real-time form sync)
+        // Notify parent of data change
         onDataChange?.(newData)
 
         // Update summary
@@ -355,7 +361,6 @@ export function useAIFormFiller<T>({
 
         // Check if complete
         if (response.complete || response.missing.length === 0) {
-          // All done!
           addMessage({
             role: 'assistant',
             content:
@@ -365,7 +370,7 @@ export function useAIFormFiller<T>({
           setStatus('complete')
           onComplete?.(newData)
         } else {
-          // Still missing fields - ask for them in a conversational message
+          // Still missing fields - ask for them
           const missingMessage = buildMissingFieldsMessage(
             response.missing,
             response.summary
@@ -375,7 +380,7 @@ export function useAIFormFiller<T>({
             content: missingMessage,
             timestamp: new Date().toISOString(),
           })
-          setStatus('idle') // Ready for user to respond
+          setStatus('idle')
         }
       } catch (err) {
         setStatus('error')
@@ -389,6 +394,7 @@ export function useAIFormFiller<T>({
       onDataChange,
       filterExcludedFromResponse,
       buildMissingFieldsMessage,
+      deepMergeData,
     ]
   )
 
@@ -409,34 +415,16 @@ export function useAIFormFiller<T>({
 
   /**
    * @description Ask a follow-up question
+   * This also extracts any form values from the question (CRUD approach)
    */
   const askQuestion = React.useCallback(
     async (question: string): Promise<string> => {
-      try {
-        // Add question to messages
-        addMessage({
-          role: 'user',
-          content: question,
-          timestamp: new Date().toISOString(),
-        })
-
-        // Get AI response - just for context, not to modify data
-        const response = await callAI(question)
-
-        // Add response to messages
-        const assistantResponse = response?.assistantMessage || ''
-        addMessage({
-          role: 'assistant',
-          content: assistantResponse,
-          timestamp: new Date().toISOString(),
-        })
-
-        return assistantResponse
-      } catch (err) {
-        return ''
-      }
+      // Just use fillFromPrompt - it handles everything
+      await fillFromPrompt(question)
+      // Return the last assistant message
+      return messages[messages.length - 1]?.content || ''
     },
-    [callAI, addMessage]
+    [fillFromPrompt, messages]
   )
 
   /**

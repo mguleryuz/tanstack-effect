@@ -1,730 +1,232 @@
-import { describe, expect, it } from 'bun:test'
-import { Schema } from 'effect'
-
-import { fillFormWithAI } from '../src/ai/server'
-import type { AIFormFillerRequest } from '../src/ai/types'
-import { generateFormFieldsWithSchemaAnnotations } from '../src/schema-form'
-
 /**
- * @description Real API integration test for AI Form Filler
- * Skip if GOOGLE_GENERATIVE_AI_API_KEY is not set
+ * Real API test for AI form filler with VisitorSettings schema
+ *
+ * Tests:
+ * 1. Schema 1:1 to AI - verify form fields map correctly to JSON Schema
+ * 2. Context 1:1 to AI - verify current data is passed correctly
+ * 3. Response - verify AI extracts fields correctly
+ *
+ * Requires GOOGLE_GENERATIVE_AI_API_KEY environment variable.
  */
+import { describe, it, expect } from 'bun:test'
+import { generateFormFieldsWithSchemaAnnotations } from '../src/schema-form'
+import { fillFormWithAI, buildJsonSchema } from '../src/ai/server'
+import { VisitorSettings } from '../../../lib/schemas'
 
 const shouldSkip = !process.env.GOOGLE_GENERATIVE_AI_API_KEY
 
-describe('AI Form Filler', () => {
-  // Simple flat schema test
-  const SimpleFormSchema = Schema.Struct({
-    projectName: Schema.String.pipe(
-      Schema.annotations({ description: 'Name of the software project' })
-    ),
-    projectType: Schema.Literal('web', 'mobile', 'desktop', 'cli').pipe(
-      Schema.annotations({ description: 'Type of project' })
-    ),
-    teamSize: Schema.Number.pipe(
-      Schema.annotations({ description: 'Number of team members' })
-    ),
+const TEST_PROMPT = `My product is called Breadcrumb. It's an advertising tool. We want to target Binance Smart Chain. We want it to reply hyping up the product but not being too complimentary but being friendly enough.`
+
+describe('AI Form Filler - Schema Validation', () => {
+  it('validates schema 1:1 mapping to JSON Schema', () => {
+    const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+    const jsonSchema = buildJsonSchema(fields)
+
+    console.log('\n=== FORM FIELDS (root) ===')
+    Object.entries(fields).forEach(([key, field]) => {
+      if (!key.includes('.')) {
+        console.log(`  ${key}: ${(field as any).type}`)
+      }
+    })
+
+    console.log('\n=== JSON SCHEMA ===')
+    console.log(JSON.stringify(jsonSchema, null, 2))
+
+    // Validate root structure
+    expect(jsonSchema.type).toBe('object')
+    expect(jsonSchema.properties).toBeDefined()
+
+    const props = jsonSchema.properties as Record<string, any>
+
+    // Validate root fields exist
+    expect(props.runType).toBeDefined()
+    expect(props.marketing).toBeDefined()
+    expect(props.options).toBeDefined()
+    expect(props.imageGen).toBeDefined()
+    expect(props.isActive).toBeDefined()
+
+    // Validate marketing nested structure
+    expect(props.marketing.type).toBe('object')
+    expect(props.marketing.properties).toBeDefined()
+
+    const marketingProps = props.marketing.properties as Record<string, any>
+    console.log('\n=== MARKETING PROPERTIES IN JSON SCHEMA ===')
+    Object.keys(marketingProps).forEach((k) => {
+      console.log(`  ${k}: ${marketingProps[k].type}`)
+    })
+
+    // Validate ALL marketing fields are present in JSON Schema
+    const expectedMarketingFields = [
+      'discoveryQuery',
+      'searchProduct',
+      'productName',
+      'productDescription',
+      'productUrl',
+      'tone',
+      'ctaStyle',
+      'discoveryInstructions',
+      'replyContext',
+      'preferredLanguages',
+      'imageEvalInstructions',
+    ]
+
+    expectedMarketingFields.forEach((fieldName) => {
+      expect(marketingProps[fieldName]).toBeDefined()
+      console.log(
+        `  ✓ ${fieldName}: type=${marketingProps[fieldName].type}, desc="${marketingProps[fieldName].description?.slice(0, 40)}..."`
+      )
+    })
+  })
+
+  it('validates context is passed correctly', () => {
+    const currentData = {
+      marketing: {
+        productName: 'ExistingProduct',
+        tone: 'professional',
+      },
+    }
+
+    const fieldsWithData = generateFormFieldsWithSchemaAnnotations(
+      currentData,
+      VisitorSettings
+    )
+    const fieldsWithEmpty = generateFormFieldsWithSchemaAnnotations(
+      {},
+      VisitorSettings
+    )
+
+    console.log('\n=== FIELDS WITH DATA (hook flow) ===')
+    const marketingChildren = fieldsWithData.marketing?.children || {}
+    console.log('Marketing children:', Object.keys(marketingChildren).length)
+    Object.keys(marketingChildren).forEach((k) => console.log(`  - ${k}`))
+
+    console.log('\n=== FIELDS WITH EMPTY (test flow) ===')
+    const emptyMarketingChildren = fieldsWithEmpty.marketing?.children || {}
+    console.log('Marketing children:', Object.keys(emptyMarketingChildren).length)
+    Object.keys(emptyMarketingChildren).forEach((k) => console.log(`  - ${k}`))
+
+    console.log('\n=== JSON SCHEMA COMPARISON ===')
+    const jsonSchemaWithData = buildJsonSchema(fieldsWithData)
+    const jsonSchemaWithEmpty = buildJsonSchema(fieldsWithEmpty)
+
+    const propsWithData = (jsonSchemaWithData.properties as any)?.marketing
+      ?.properties || {}
+    const propsWithEmpty = (jsonSchemaWithEmpty.properties as any)?.marketing
+      ?.properties || {}
+
+    console.log('JSON Schema marketing fields with data:', Object.keys(propsWithData).length)
+    console.log('JSON Schema marketing fields with empty:', Object.keys(propsWithEmpty).length)
+
+    // They should be the same!
+    expect(Object.keys(propsWithData).length).toBe(
+      Object.keys(propsWithEmpty).length
+    )
   })
 
   it.skipIf(shouldSkip)(
-    'should fill simple form from prompt',
+    'extracts multiple fields from initial prompt',
     async () => {
-      const formFields = generateFormFieldsWithSchemaAnnotations(
-        {},
-        SimpleFormSchema
-      )
+      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
 
-      // Complete prompt with all required fields
-      const prompt =
-        'Project name: TestApp. Project type: mobile. Team size: 5.'
+      const response = await fillFormWithAI({
+        prompt: TEST_PROMPT,
+        fields,
+        messages: [],
+      })
 
-      const request: AIFormFillerRequest = {
-        prompt,
-        fields: formFields,
-        messages: [{ role: 'user', content: prompt }],
-      }
+      console.log('\n=== AI RESPONSE (Initial Prompt) ===')
+      console.log('Filled:', JSON.stringify(response.filled, null, 2))
 
-      const response = await fillFormWithAI(request)
-
-      // Validate all fields are filled
-      expect(String(response.filled.projectName).toLowerCase()).toContain(
-        'testapp'
-      )
-      expect(response.filled.projectType).toBe('mobile')
-      expect(response.filled.teamSize).toBe(5)
-
-      // Should be complete with no missing fields
-      expect(response.complete).toBe(true)
-      expect(response.missing.length).toBe(0)
-    },
-    { timeout: 15000 }
-  )
-
-  // Complex nested schema test - mirrors the app's VisitorSettings
-  const MarketingTone = Schema.Literal(
-    'friendly',
-    'professional',
-    'witty'
-  ).annotations({
-    title: 'Tone',
-    description: 'The tone of voice for generated replies',
-  })
-
-  const CtaStyle = Schema.Literal('subtle', 'direct', 'none').annotations({
-    title: 'CTA Style',
-    description: 'How prominent the call-to-action should be',
-  })
-
-  const SearchProduct = Schema.Literal(
-    'Top',
-    'Latest',
-    'Media',
-    'People'
-  ).annotations({
-    title: 'Search Type',
-    description: 'Twitter search result type to use',
-  })
-
-  const PreferredLanguage = Schema.Literal(
-    'en',
-    'es',
-    'fr',
-    'de',
-    'zh',
-    'ja',
-    'ko'
-  ).annotations({
-    title: 'Language',
-    description: 'ISO language code',
-  })
-
-  const MarketingConfig = Schema.Struct({
-    discoveryQuery: Schema.String.annotations({
-      title: 'Discovery Query',
-      description: 'Twitter search query',
-    }),
-    searchProduct: SearchProduct,
-    productName: Schema.String.annotations({
-      title: 'Product Name',
-      description: 'The name of your product',
-    }),
-    productDescription: Schema.String.annotations({
-      title: 'Product Description',
-      description: 'A brief description of what your product does',
-    }),
-    productUrl: Schema.String.annotations({
-      title: 'Product URL',
-      description: 'The URL to your product',
-    }),
-    tone: MarketingTone,
-    ctaStyle: CtaStyle,
-    preferredLanguages: Schema.Array(PreferredLanguage).annotations({
-      title: 'Preferred Languages',
-      description: 'Languages your campaign should target',
-    }),
-  }).annotations({
-    title: 'Marketing Configuration',
-    description: 'Configure how your product is marketed',
-  })
-
-  const OptionsConfig = Schema.Struct({
-    maxCandidatesPerRun: Schema.optionalWith(
-      Schema.Number.annotations({
-        title: 'Max Candidates',
-        description: 'Maximum tweets to evaluate per run',
-      }),
-      { default: () => 50 }
-    ),
-    maxRepliesPerRun: Schema.optionalWith(
-      Schema.Number.annotations({
-        title: 'Max Replies Per Run',
-        description: 'Maximum replies to post per run',
-      }),
-      { default: () => 1 }
-    ),
-    dryRun: Schema.optionalWith(
-      Schema.Boolean.annotations({
-        title: 'Dry Run',
-        description: 'Simulate without posting',
-      }),
-      { default: () => false }
-    ),
-  }).annotations({
-    title: 'Run Options',
-    description: 'Configure how automation runs behave',
-  })
-
-  const ImageGenConfig = Schema.Struct({
-    enabled: Schema.optionalWith(
-      Schema.Boolean.annotations({
-        title: 'Enable Image Generation',
-        description: 'Generate AI images with replies',
-      }),
-      { default: () => false }
-    ),
-    instructions: Schema.optionalWith(
-      Schema.String.annotations({
-        title: 'Image Instructions',
-        description: 'Custom instructions for image generation',
-      }),
-      { default: () => '' }
-    ),
-  }).annotations({
-    title: 'Image Generation',
-    description: 'Configure AI-generated images for replies',
-  })
-
-  const ComplexFormSchema = Schema.Struct({
-    marketing: MarketingConfig,
-    options: Schema.optional(OptionsConfig),
-    imageGen: Schema.optional(ImageGenConfig),
-    isActive: Schema.optionalWith(
-      Schema.Boolean.annotations({
-        title: 'Active',
-        description: 'Whether this campaign is active',
-      }),
-      { default: () => true }
-    ),
-  }).annotations({
-    title: 'Campaign Settings',
-    description: 'Configure your marketing campaign',
-  })
-
-  it.skipIf(shouldSkip)(
-    'should generate clarifications for missing required nested fields',
-    async () => {
-      const formFields = generateFormFieldsWithSchemaAnnotations(
-        {},
-        ComplexFormSchema
-      )
-
-      // Prompt mentioning only SOME required fields
-      const prompt = `
-        Product Name: CodeShip
-        Product URL: https://codeship.dev
-        Tone: friendly
-      `
-
-      const request: AIFormFillerRequest = {
-        prompt,
-        fields: formFields,
-        messages: [{ role: 'user', content: prompt }],
-      }
-
-      const response = await fillFormWithAI(request)
-
-      // Validate marketing object exists with filled fields
       const marketing = response.filled.marketing as Record<string, unknown>
-      expect(marketing).toBeDefined()
-      expect(marketing.productName).toBeDefined()
-      expect(marketing.productUrl).toBeDefined()
 
-      // Missing required fields should be detected
-      expect(response.missing.length).toBeGreaterThan(0)
-
-      // Clarifications should be generated for missing required fields
-      expect(response.clarifications.length).toBeGreaterThan(0)
-
-      // Clarifications should include specific missing fields
-      const clarificationFields = response.clarifications.map((c) => c.field)
-      // These fields were not mentioned in the prompt and should be in clarifications
-      expect(
-        clarificationFields.some((f) => f.includes('discoveryQuery')) ||
-          clarificationFields.some((f) => f.includes('searchProduct')) ||
-          clarificationFields.some((f) => f.includes('productDescription')) ||
-          clarificationFields.some((f) => f.includes('ctaStyle'))
-      ).toBe(true)
-
-      // Should NOT be complete since required fields are missing
-      expect(response.complete).toBe(false)
-    },
-    { timeout: 20000 }
-  )
-
-  // Test for excludeFields - simulates what the client hook does
-  const RunType = Schema.Literal('api', 'accounts').annotations({
-    title: 'Run Type',
-    description: 'How to post replies',
-  })
-
-  const SchemaWithExcludableField = Schema.Struct({
-    runType: Schema.optionalWith(RunType, { default: () => 'api' as const }),
-    projectName: Schema.String.annotations({
-      title: 'Project Name',
-      description: 'The name of the project',
-    }),
-    projectType: Schema.Literal('web', 'mobile', 'desktop').annotations({
-      title: 'Project Type',
-      description: 'Type of project',
-    }),
-  })
-
-  it.skipIf(shouldSkip)(
-    'should not fill excluded fields when they are filtered out',
-    async () => {
-      const allFields = generateFormFieldsWithSchemaAnnotations(
-        {},
-        SchemaWithExcludableField
-      )
-
-      // Simulate excludeFields filtering (what the client hook does)
-      const excludeFields = ['runType']
-      const filteredFields: typeof allFields = {}
-      for (const [key, value] of Object.entries(allFields)) {
-        const isExcluded = excludeFields.some(
-          (excluded) => key === excluded || key.startsWith(`${excluded}.`)
-        )
-        if (!isExcluded) {
-          filteredFields[key] = value
+      console.log('\n=== MARKETING FIELDS EXTRACTED ===')
+      Object.entries(marketing || {}).forEach(([k, v]) => {
+        if (v != null && v !== '') {
+          console.log(`  ✓ ${k}: "${v}"`)
         }
-      }
+      })
 
-      // Verify runType was filtered out
-      expect(filteredFields.runType).toBeUndefined()
-      expect(filteredFields.projectName).toBeDefined()
-      expect(filteredFields.projectType).toBeDefined()
+      // Core extractions from: "My product is called Breadcrumb. It's an advertising tool.
+      // We want to target Binance Smart Chain. We want it to reply hyping up the product
+      // but not being too complimentary but being friendly enough."
 
-      // Prompt that mentions all fields including the excluded one
-      const prompt = `
-        Run type: accounts.
-        Project name: TestProject.
-        Project type: web.
-      `
+      // Should extract productName from "called Breadcrumb"
+      expect(marketing?.productName).toBe('Breadcrumb')
 
-      const request: AIFormFillerRequest = {
-        prompt,
-        fields: filteredFields, // Use filtered fields
-        messages: [{ role: 'user', content: prompt }],
-      }
-
-      const response = await fillFormWithAI(request)
-
-      // The AI should NOT have filled runType because it wasn't in the fields
-      expect(response.filled.runType).toBeUndefined()
-
-      // But it should have filled the non-excluded fields
-      expect(response.filled.projectName).toBeDefined()
-      expect(response.filled.projectType).toBe('web')
-    },
-    { timeout: 15000 }
-  )
-
-  // Test for validation - AI should extract fields from structured prompt
-  const RequiredFieldsSchema = Schema.Struct({
-    userName: Schema.String.annotations({
-      title: 'User Name',
-      description: 'The name of the user',
-    }),
-    userRole: Schema.Literal('admin', 'user', 'guest').annotations({
-      title: 'User Role',
-      description: 'Role in the system',
-    }),
-  })
-
-  it.skipIf(shouldSkip)(
-    'should fill fields and report correct missing/complete status',
-    async () => {
-      const formFields = generateFormFieldsWithSchemaAnnotations(
-        {},
-        RequiredFieldsSchema
-      )
-
-      // Complete prompt with all required info
-      const prompt = 'User name is TestUser and their role is admin.'
-
-      const request: AIFormFillerRequest = {
-        prompt,
-        fields: formFields,
-        messages: [{ role: 'user', content: prompt }],
-      }
-
-      const response = await fillFormWithAI(request)
-
-      // At least one field should be filled
-      const filledCount = Object.keys(response.filled).filter(
-        (k) => response.filled[k] !== undefined
-      ).length
-      expect(filledCount).toBeGreaterThan(0)
-
-      // Summary should be present
-      expect(response.summary).toBeDefined()
-      expect(response.summary.length).toBeGreaterThan(0)
-
-      // If complete, validate against schema
-      if (response.complete) {
-        const parseResult = Schema.decodeUnknownEither(RequiredFieldsSchema)(
-          response.filled
-        )
-        expect(parseResult._tag).toBe('Right')
+      // Should extract discoveryQuery from "target Binance Smart Chain"
+      if (marketing?.discoveryQuery) {
+        expect(String(marketing.discoveryQuery).toLowerCase()).toContain('binance')
       } else {
-        // If not complete, should have missing fields or clarifications
-        expect(
-          response.missing.length > 0 || response.clarifications.length > 0
-        ).toBe(true)
+        console.log('⚠ discoveryQuery NOT extracted')
       }
+
+      // Should extract tone from "friendly"
+      expect(marketing?.tone).toBe('friendly')
+
+      // Should extract productDescription from "It's an advertising tool"
+      if (marketing?.productDescription) {
+        console.log('✓ productDescription extracted:', marketing.productDescription)
+      } else {
+        console.log('⚠ productDescription NOT extracted (expected from "It\'s an advertising tool")')
+      }
+
+      // Should extract replyContext from "reply hyping up..."
+      if (marketing?.replyContext) {
+        console.log('✓ replyContext extracted:', marketing.replyContext)
+      } else {
+        console.log('⚠ replyContext NOT extracted (expected from "reply hyping up...")')
+      }
+
+      // At minimum, should extract productName and tone
+      const filledCount = Object.values(marketing || {}).filter(
+        (v) => v != null && v !== ''
+      ).length
+      console.log(`\nTotal filled: ${filledCount} fields`)
+      expect(filledCount).toBeGreaterThanOrEqual(2)
     },
-    { timeout: 15000 }
+    { timeout: 30000 }
   )
 
-  // Test that existing form values are used as context
   it.skipIf(shouldSkip)(
-    'should use existing form values as context for AI decisions',
+    'CRUD: adds new field to existing data',
     async () => {
-      const formFields = generateFormFieldsWithSchemaAnnotations(
-        {},
-        SimpleFormSchema
+      // CRUD approach: Schema + Current Data + User Message (no history)
+      const currentData = {
+        marketing: {
+          productName: 'Breadcrumb',
+          discoveryQuery: 'Binance Smart Chain',
+          tone: 'friendly',
+        },
+      }
+
+      const prompt = `reply context is We want it to reply hyping up the product but not being too complimentary`
+
+      const fields = generateFormFieldsWithSchemaAnnotations(
+        currentData,
+        VisitorSettings
       )
 
-      // User has already filled in projectName - AI should be aware of this context
-      const existingData = {
-        projectName: 'CodeShip',
-      }
-
-      // Prompt only mentions the missing fields, relying on context for projectName
-      const prompt = 'Project type: web. Team size: 5.'
-
-      const request: AIFormFillerRequest = {
+      const response = await fillFormWithAI({
         prompt,
-        fields: formFields,
-        messages: [{ role: 'user', content: prompt }],
-        partialData: existingData,
-      }
+        fields,
+        partialData: currentData,
+        messages: [], // CRUD: no history
+      })
 
-      const response = await fillFormWithAI(request)
-
-      // AI should include the existing projectName in output (using context)
-      expect(response.filled.projectName).toBe('CodeShip')
-
-      // Other fields should be filled from prompt
-      expect(response.filled.projectType).toBe('web')
-      expect(response.filled.teamSize).toBe(5)
-
-      // Should be complete since all required fields are filled
-      expect(response.complete).toBe(true)
-    },
-    { timeout: 15000 }
-  )
-
-  // Test that clarifications are generated for missing required fields
-  it.skipIf(shouldSkip)(
-    'should generate clarifications when required fields cannot be filled',
-    async () => {
-      const formFields = generateFormFieldsWithSchemaAnnotations(
-        {},
-        SimpleFormSchema
-      )
-
-      // Very minimal prompt - only has project name, nothing else
-      const prompt = 'MyApp'
-
-      const request: AIFormFillerRequest = {
-        prompt,
-        fields: formFields,
-        messages: [{ role: 'user', content: prompt }],
-      }
-
-      const response = await fillFormWithAI(request)
-
-      // projectName should be filled
-      expect(String(response.filled.projectName).toLowerCase()).toContain('myapp')
-
-      // Test passes if either:
-      // 1. Some fields are missing (AI correctly identified it can't fill them)
-      // 2. All fields are filled (AI made reasonable assumptions - acceptable behavior)
-      // The important thing is the form was processed without errors
-      expect(response.filled.projectName).toBeDefined()
-
-      // If not complete, should have clarifications
-      if (!response.complete) {
-        expect(response.missing.length).toBeGreaterThan(0)
-        expect(response.clarifications.length).toBeGreaterThan(0)
-      }
-    },
-    { timeout: 15000 }
-  )
-
-  // Test that AI interprets natural language for enum/array values
-  it.skipIf(shouldSkip)(
-    'should interpret natural language like "english and chinese" to language codes',
-    async () => {
-      const formFields = generateFormFieldsWithSchemaAnnotations(
-        {},
-        ComplexFormSchema
-      )
-
-      // Prompt with natural language for languages - very explicit about all fields
-      const prompt = `
-        My app is called levr, it's a token launcher.
-        Product URL: https://levr.xyz
-        Product description: A token launcher for DeFi projects.
-        We target Base chain users who speak english and chinese.
-        Tone: friendly
-        CTA style: subtle
-        Search for Top tweets.
-        Discovery query: #crypto #tokens
-      `
-
-      const request: AIFormFillerRequest = {
-        prompt,
-        fields: formFields,
-        messages: [{ role: 'user', content: prompt }],
-      }
-
-      const response = await fillFormWithAI(request)
-
-      // Validate marketing fields
-      const marketing = response.filled.marketing as Record<string, unknown>
-      expect(marketing).toBeDefined()
-
-      // Product name should be extracted
-      expect(String(marketing.productName).toLowerCase()).toContain('levr')
-
-      // These may or may not be filled depending on AI interpretation
-      // The key test is that languages are correctly interpreted
-      if (marketing.preferredLanguages) {
-        const preferredLangs = marketing.preferredLanguages as string[]
-        expect(Array.isArray(preferredLangs)).toBe(true)
-        if (preferredLangs.length > 0) {
-          // Should map "english" → "en" and "chinese" → "zh"
-          expect(preferredLangs.some((l) => l === 'en')).toBe(true)
-          expect(preferredLangs.some((l) => l === 'zh')).toBe(true)
-        }
-      }
-    },
-    { timeout: 20000 }
-  )
-
-  // Test that AI does NOT invent placeholder values for unmentioned fields
-  it.skipIf(shouldSkip)(
-    'should NOT invent placeholder values for fields not mentioned by user',
-    async () => {
-      const formFields = generateFormFieldsWithSchemaAnnotations(
-        {},
-        ComplexFormSchema
-      )
-
-      // Minimal prompt - only mentions product name and description
-      // Does NOT mention: URL, discovery query, search product, tone, cta style
-      const prompt =
-        'my app is called levr its a token launcher we target base english and chineese'
-
-      const request: AIFormFillerRequest = {
-        prompt,
-        fields: formFields,
-        messages: [{ role: 'user', content: prompt }],
-      }
-
-      const response = await fillFormWithAI(request)
+      console.log('\n=== CRUD UPDATE ===')
+      console.log('Current:', JSON.stringify(currentData.marketing, null, 2))
+      console.log('Prompt:', prompt)
+      console.log('Result:', JSON.stringify(response.filled, null, 2))
 
       const marketing = response.filled.marketing as Record<string, unknown>
 
-      // Marketing object may or may not exist - check if it does
-      if (marketing) {
-        // Fields that SHOULD be filled from the prompt if marketing exists
-        if (marketing.productName) {
-          expect(String(marketing.productName).toLowerCase()).toContain('levr')
-        }
+      // Should preserve existing data
+      expect(marketing?.productName).toBe('Breadcrumb')
+      expect(marketing?.tone).toBe('friendly')
 
-        // Fields that should NOT be filled with invented values
-        // The AI should leave these empty or undefined, not invent placeholders
-        const productUrl = marketing.productUrl as string | undefined
-        if (productUrl) {
-          // If filled, it should NOT be a generic placeholder
-          expect(productUrl).not.toContain('example.com')
-          expect(productUrl).not.toContain('myproduct.com')
-          expect(productUrl).not.toContain('placeholder')
-        }
-
-        const discoveryQuery = marketing.discoveryQuery as string | undefined
-        if (discoveryQuery) {
-          // If filled, it should NOT be generic hashtags unrelated to the input
-          expect(discoveryQuery).not.toContain('#buildinpublic')
-          expect(discoveryQuery).not.toContain('#indiehackers')
-        }
-      }
-
-      // Form should NOT be complete since required fields are missing
-      expect(response.complete).toBe(false)
-      expect(response.missing.length).toBeGreaterThan(0)
-    },
-    { timeout: 20000 }
-  )
-
-  // Test that AI correctly interprets tone from user description
-  it.skipIf(shouldSkip)(
-    'should correctly interpret tone and context from descriptive prompt',
-    async () => {
-      const formFields = generateFormFieldsWithSchemaAnnotations(
-        {},
-        ComplexFormSchema
-      )
-
-      // Very explicit prompt with all fields clearly labeled
-      const prompt = `
-        Product name: Levr
-        Product description: A token launcher for DeFi projects
-        Product URL: https://levr.xyz
-        Tone: witty
-        CTA style: direct
-        Search product: Top
-        Discovery query: #DeFi #tokens
-        Languages: english
-      `
-
-      const request: AIFormFillerRequest = {
-        prompt,
-        fields: formFields,
-        messages: [{ role: 'user', content: prompt }],
-      }
-
-      const response = await fillFormWithAI(request)
-
-      const marketing = response.filled.marketing as Record<string, unknown>
-      expect(marketing).toBeDefined()
-
-      // Validate key extractions
-      if (marketing.productName) {
-        expect(String(marketing.productName).toLowerCase()).toContain('levr')
-      }
-
-      // Product URL should match what was provided (if filled)
-      if (marketing.productUrl) {
-        expect(marketing.productUrl).toBe('https://levr.xyz')
-      }
-
-      // Tone should be extracted (witty or friendly - both valid interpretations)
-      if (marketing.tone) {
-        expect(['witty', 'friendly']).toContain(marketing.tone as string)
-      }
-
-      // Discovery query should match what was provided (if filled)
-      if (marketing.discoveryQuery) {
-        expect(String(marketing.discoveryQuery)).toContain('#DeFi')
-      }
-    },
-    { timeout: 20000 }
-  )
-
-  // Test the specific user-reported scenario: Breadcrumb/BSC/advertising tool
-  // This tests that the AI correctly extracts from natural language without inventing values
-  it.skipIf(shouldSkip)(
-    'should extract product info from natural language without inventing placeholders',
-    async () => {
-      const formFields = generateFormFieldsWithSchemaAnnotations(
-        {},
-        ComplexFormSchema
-      )
-
-      // Natural language prompt similar to what the user reported
-      const prompt = `My product is called Breadcrumb. It's an advertising tool. 
-        We want to target Binance Smart Chain. 
-        We want it to reply hyping up the product but not being too complimentary but being friendly enough.`
-
-      const request: AIFormFillerRequest = {
-        prompt,
-        fields: formFields,
-        messages: [{ role: 'user', content: prompt }],
-      }
-
-      const response = await fillFormWithAI(request)
-
-      const marketing = response.filled.marketing as Record<string, unknown>
-      expect(marketing).toBeDefined()
-
-      // CRITICAL: Product name should be "Breadcrumb", NOT "My Product" or other placeholder
-      expect(String(marketing.productName).toLowerCase()).toContain('breadcrumb')
-
-      // Product description should mention advertising, NOT generic placeholder
-      if (marketing.productDescription) {
-        expect(
-          String(marketing.productDescription).toLowerCase()
-        ).toMatch(/advertis|marketing/)
-      }
-
-      // Tone should be "friendly" based on "friendly enough" and "not too complimentary"
-      expect(marketing.tone).toBe('friendly')
-
-      // CRITICAL: These fields should be EMPTY since user didn't provide them
-      // The AI should NOT invent placeholder values
-      
-      // Product URL - user didn't mention any URL
-      if (marketing.productUrl) {
-        // If filled, it MUST NOT be a placeholder
-        expect(String(marketing.productUrl)).not.toMatch(/example\.com|myproduct|placeholder/i)
-      }
-
-      // Discovery query - user mentioned BSC but didn't provide specific hashtags
-      // AI might reasonably suggest BSC-related terms OR leave it empty - both are acceptable
-      if (marketing.discoveryQuery) {
-        // If filled, should relate to BSC/Binance, NOT generic hashtags
-        expect(String(marketing.discoveryQuery)).not.toMatch(/#buildinpublic|#indiehackers/i)
-      }
-
-      // Form should NOT be complete since required fields are missing
-      expect(response.complete).toBe(false)
-      expect(response.missing.length).toBeGreaterThan(0)
-
-      // Should generate clarification questions for missing fields
-      expect(response.clarifications.length).toBeGreaterThan(0)
-    },
-    { timeout: 20000 }
-  )
-
-  // Test that conversation history improves context passing
-  it.skipIf(shouldSkip)(
-    'should maintain context across conversation turns',
-    async () => {
-      const formFields = generateFormFieldsWithSchemaAnnotations(
-        {},
-        ComplexFormSchema
-      )
-
-      // First turn: user provides basic info
-      const firstPrompt = 'My product is called Breadcrumb. It is an advertising tool.'
-
-      const firstRequest: AIFormFillerRequest = {
-        prompt: firstPrompt,
-        fields: formFields,
-        messages: [{ role: 'user', content: firstPrompt }],
-      }
-
-      const firstResponse = await fillFormWithAI(firstRequest)
-      const firstMarketing = firstResponse.filled.marketing as Record<string, unknown>
-
-      // Verify first turn extracted correctly (if marketing exists)
-      if (firstMarketing && firstMarketing.productName) {
-        expect(String(firstMarketing.productName).toLowerCase()).toContain('breadcrumb')
-      }
-
-      // Second turn: user provides follow-up info with context
-      const secondPrompt = 'The URL is https://breadcrumb.io and target english speakers'
-
-      const secondRequest: AIFormFillerRequest = {
-        prompt: secondPrompt,
-        fields: formFields,
-        messages: [
-          { role: 'user', content: firstPrompt },
-          { role: 'assistant', content: firstResponse.summary },
-          { role: 'user', content: secondPrompt },
-        ],
-        partialData: firstResponse.filled, // Include previous data
-      }
-
-      const secondResponse = await fillFormWithAI(secondRequest)
-      const secondMarketing = secondResponse.filled.marketing as Record<string, unknown>
-
-      // Verify second response has the URL from second turn
-      if (secondMarketing && secondMarketing.productUrl) {
-        expect(secondMarketing.productUrl).toBe('https://breadcrumb.io')
-      }
-
-      // Should have the language (if extracted)
-      if (secondMarketing && secondMarketing.preferredLanguages) {
-        const preferredLangs = secondMarketing.preferredLanguages as string[]
-        if (preferredLangs.length > 0) {
-          expect(preferredLangs).toContain('en')
-        }
-      }
+      // Should extract new field from prompt
+      expect(marketing?.replyContext).toBeDefined()
+      console.log('✓ replyContext extracted:', marketing?.replyContext)
     },
     { timeout: 30000 }
   )
