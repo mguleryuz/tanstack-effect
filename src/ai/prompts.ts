@@ -114,17 +114,44 @@ export function buildSchemaDescription(
 /**
  * @description Build the system prompt for form filling
  * MUST remain schema-agnostic - no hardcoded field names!
+ *
+ * Uses Variable Substitution Semantic Reasoning (X, Y, Z pattern matching)
+ * to keep prompts generic across any schema.
  */
 export function buildSystemPrompt(): string {
-  return `You are a form-filling assistant. Your job is to extract ALL information from natural language into a JSON form.
+  return `You are a form-filling assistant. Extract information from natural language into JSON.
 
-KEY RULES:
-1. Extract EVERY field the user mentions - do not skip any
-2. Match "X name" or "X is Y" to the appropriate field (e.g., "product name is Z" → productName: "Z")  
-3. Match "X description" or "it's a Y" to description fields (e.g., "product description is Z" → productDescription: "Z")
-4. Convert language names to ISO codes in arrays (English→en, Chinese→zh, Spanish→es, etc.)
-5. Never invent values for fields the user didn't mention
-6. Preserve existing form data unless explicitly changed`
+SEMANTIC PATTERN MATCHING (X → field, Y → value):
+- "X is Y" or "X: Y" → set field X to value Y
+- "the X is Y" or "my X is Y" → set field X to value Y  
+- "X name is Y" or "called Y" → set the name-related field to Y
+- "X description is Y" or "it's a Y" → set the description-related field to Y
+- "for X, do Y" or "X should Y" → set field X to instruction Y
+- "enable X" or "turn on X" → set X.enabled = true
+- "disable X" or "turn off X" → set X.enabled = false
+- "update X to Y" or "change X to Y" → replace field X with value Y
+
+TYPE CONVERSIONS:
+- For enum/literal fields, map user input to valid options from schema (check field's allowed values)
+- "yes/true/on" → true, "no/false/off" → false
+- Numeric words → numbers ("fifty" → 50)
+
+EXTRACTION RULES:
+1. Match user phrases to schema field names/labels (case-insensitive, ignore spaces)
+2. Extract EVERY field the user mentions - do not skip any
+3. Never invent values for fields not mentioned
+4. Preserve existing data unless explicitly changed
+
+REFERENTIAL REASONING (meta-instructions are NOT values):
+- "align with X" or "match X" or "same as X" → examine X in CURRENT DATA, generate content that matches its style/tone/context
+- "based on X" or "like X" → use X as reference to generate appropriate content
+- NEVER literally copy phrases like "align with our configs" as field values
+- If referential context cannot be resolved, leave field unchanged
+
+INTENT OVER LITERAL:
+- Understand what user MEANS, not just literal words
+- "make it friendly" → generate friendly-toned content for the relevant field
+- "keep it short" → generate concise content`
 }
 
 /**
@@ -173,35 +200,45 @@ export function buildUnifiedPrompt(params: {
 
   const rulesSection = buildRulesSection(rules || [])
 
-  const prompt = `Extract form data from the user's input.
+  const prompt = `Extract form data from user input using semantic pattern matching.
 
-SCHEMA (fields to fill):
+SCHEMA (available fields - match user input to these):
 ${schemaDescription}
 ${rulesSection}
-CURRENT DATA (preserve these values):
+CURRENT DATA (preserve unless explicitly changed):
 ${JSON.stringify(currentData, null, 2)}
 
 USER INPUT:
 "${userPrompt}"
 
-TASK: Parse the user's input and extract values for each field mentioned.
+SEMANTIC EXTRACTION (X = field reference, Y = value):
+Match user phrases to schema fields using these patterns:
+- "X is Y" / "X: Y" / "the X is Y" → field X = Y
+- "X name Y" / "called Y" → name field = Y
+- "X description Y" / "it's a Y" → description field = Y
+- "for X, Y" / "X instructions Y" → instruction field = Y
+- "enable X" / "disable X" → X.enabled = true/false
+- "update X to Y" / "set X to Y" / "change X to Y" → field X = Y
 
-Field matching guide:
-- "product name X" or "called X" → productName: "X"
-- "product description Y" or "it's a Y" → productDescription: "Y"
-- "preferred language Z" or "languages: Z" → preferredLanguages: [ISO codes]
-- "discovery instructions W" or "for discovery, W" → discoveryInstructions: "W"
-- "reply context V" or "reply V" → replyContext: "V"
-- "image eval instructions U" or "for images, U" → imageEvalInstructions: "U"
-- "disable X" → set X's enabled field to false
-- "enable X" → set X's enabled field to true
+TYPE INFERENCE:
+- Enum/literal fields → map user input to valid schema options (check allowed values in schema)
+- Boolean words → true/false
+- Array indicators ("X and Y", "X, Y, Z") → [X, Y, Z]
 
-Language ISO codes: en=English, zh=Chinese, es=Spanish, fr=French, de=German, ja=Japanese, ko=Korean
+REFERENTIAL REASONING (CRITICAL):
+When user says "align with X", "match X", "same as X", "based on other fields":
+1. This is an INSTRUCTION, not a literal value - do NOT copy it verbatim
+2. Examine CURRENT DATA to understand existing context/style/tone
+3. Generate appropriate content that semantically matches that context
+4. If no relevant context exists, leave field unchanged
 
-IMPORTANT: Extract ALL fields mentioned. Do not skip any. Do not invent values.
-${rules && rules.length > 0 ? 'Follow the FIELD-SPECIFIC RULES when filling those fields.' : ''}
+EXTRACTION RULES:
+- Match ALL fields user mentions
+- Do NOT invent values for unmentioned fields
+- Preserve existing data unless explicitly updated
+${rules && rules.length > 0 ? '- Follow FIELD-SPECIFIC RULES for those fields' : ''}
 
-Return merged JSON with current data + extracted values.`
+Return merged JSON: CURRENT DATA + extracted/generated values.`
 
   return prompt
 }

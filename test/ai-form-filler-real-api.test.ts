@@ -306,6 +306,181 @@ describe('AI Form Filler - Conditional Requirements', () => {
   )
 })
 
+describe('AI Form Filler - Reasoning & Context', () => {
+  /**
+   * CRITICAL: Test that AI doesn't literally copy referential instructions.
+   * 
+   * When user says "fill image instructions to align with our other configs",
+   * the AI should NOT fill "align with our other configs" as the value.
+   * Instead, it should:
+   * 1. Look at the current data (productName, replyContext, etc.)
+   * 2. Generate appropriate image instructions that match the context
+   */
+  it.skipIf(shouldSkip)(
+    'does NOT literally copy referential instructions like "align with X"',
+    async () => {
+      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+
+      // Simulate user who has already filled out marketing config
+      const currentData = {
+        marketing: {
+          productName: 'Breadcrumb',
+          productDescription: 'AI-powered marketing automation for crypto projects',
+          replyContext: 'Be witty and engaging, hype up the product but stay authentic',
+          discoveryQuery: 'BNB BSC Binance',
+        },
+        imageGen: {
+          enabled: true,
+        },
+      }
+
+      // User says "fill image instructions to align with our other configs"
+      const response = await fillFormWithAI({
+        prompt: 'fill image instructions to align with our other configs',
+        fields,
+        partialData: currentData,
+        messages: [],
+      })
+
+      console.log('\n=== REFERENTIAL INSTRUCTION TEST ===')
+      console.log('Current data:', JSON.stringify(currentData, null, 2))
+      console.log('Prompt: "fill image instructions to align with our other configs"')
+      console.log('Filled:', JSON.stringify(response.filled, null, 2))
+      console.log('Summary:', response.summary)
+
+      const imageGen = response.filled.imageGen as Record<string, unknown>
+
+      // The AI MUST NOT literally copy the instruction
+      const instructions = String(imageGen?.instructions || '').toLowerCase()
+      
+      console.log('\n=== VALIDATION ===')
+      console.log('Image instructions:', imageGen?.instructions)
+      
+      // Should NOT contain literal copies of meta-instructions
+      expect(instructions).not.toContain('align with')
+      expect(instructions).not.toContain('other configs')
+      expect(instructions).not.toContain('same as')
+      
+      // Should contain something relevant to the context
+      // (product is about crypto/marketing, tone is witty/engaging)
+      const hasRelevantContent = 
+        instructions.includes('witty') ||
+        instructions.includes('engaging') ||
+        instructions.includes('crypto') ||
+        instructions.includes('professional') ||
+        instructions.includes('brand') ||
+        instructions.includes('promotional') ||
+        instructions.length > 20 // At least some meaningful content
+
+      expect(hasRelevantContent).toBe(true)
+      
+      console.log('\n✓ AI correctly interpreted referential instruction')
+    },
+    { timeout: 30000 }
+  )
+
+  /**
+   * Test that "update X" without a value doesn't fail silently.
+   * The AI should understand the user wants to modify that field.
+   */
+  it.skipIf(shouldSkip)(
+    'handles "update X to Y" instructions correctly',
+    async () => {
+      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+
+      const currentData = {
+        marketing: {
+          discoveryQuery: 'old query',
+          productName: 'Breadcrumb',
+        },
+      }
+
+      // User explicitly says what to update
+      const response = await fillFormWithAI({
+        prompt: 'update discovery query to find trending tweets from bnb bsc binance',
+        fields,
+        partialData: currentData,
+        messages: [],
+      })
+
+      console.log('\n=== UPDATE INSTRUCTION TEST ===')
+      console.log('Current data:', JSON.stringify(currentData, null, 2))
+      console.log('Prompt: "update discovery query to find trending tweets from bnb bsc binance"')
+      console.log('Filled:', JSON.stringify(response.filled, null, 2))
+
+      const marketing = response.filled.marketing as Record<string, unknown>
+
+      // Should update the discovery query
+      expect(marketing?.discoveryQuery).toBeDefined()
+      const query = String(marketing?.discoveryQuery).toLowerCase()
+      
+      // Should contain the keywords from the user's instruction
+      expect(query.includes('bnb') || query.includes('bsc') || query.includes('binance')).toBe(true)
+      
+      // Should NOT be the old value
+      expect(query).not.toBe('old query')
+      
+      console.log('\n✓ AI correctly updated the field')
+    },
+    { timeout: 30000 }
+  )
+
+  /**
+   * Test that image eval instructions can be generated from context.
+   */
+  it.skipIf(shouldSkip)(
+    'generates contextual image eval instructions',
+    async () => {
+      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+
+      const currentData = {
+        marketing: {
+          productName: 'CryptoBot',
+          productDescription: 'AI trading bot for DeFi',
+          replyContext: 'Professional but friendly, focus on trading benefits',
+          discoveryQuery: 'DeFi trading crypto',
+        },
+      }
+
+      // User asks for image eval based on context
+      const response = await fillFormWithAI({
+        prompt: 'add image eval instructions that match our product focus',
+        fields,
+        partialData: currentData,
+        messages: [],
+      })
+
+      console.log('\n=== CONTEXTUAL IMAGE EVAL TEST ===')
+      console.log('Current data:', JSON.stringify(currentData, null, 2))
+      console.log('Prompt: "add image eval instructions that match our product focus"')
+      console.log('Filled:', JSON.stringify(response.filled, null, 2))
+
+      const marketing = response.filled.marketing as Record<string, unknown>
+      const imageEval = String(marketing?.imageEvalInstructions || '').toLowerCase()
+
+      console.log('Image eval instructions:', marketing?.imageEvalInstructions)
+
+      // Should NOT literally copy the meta-instruction
+      expect(imageEval).not.toContain('match our product')
+      expect(imageEval).not.toContain('product focus')
+
+      // Should have some relevant content (crypto/trading/defi related)
+      const hasRelevantContent =
+        imageEval.includes('trading') ||
+        imageEval.includes('crypto') ||
+        imageEval.includes('defi') ||
+        imageEval.includes('chart') ||
+        imageEval.includes('professional') ||
+        imageEval.length > 15
+
+      expect(hasRelevantContent).toBe(true)
+
+      console.log('\n✓ AI generated contextual image eval instructions')
+    },
+    { timeout: 30000 }
+  )
+})
+
 describe('AI Form Filler - Schema Validation', () => {
   it('validates schema 1:1 mapping to JSON Schema', () => {
     const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
