@@ -5,6 +5,7 @@
 
 import { google } from '@ai-sdk/google'
 import { generateText, jsonSchema, Output } from 'ai'
+import { isEqual } from 'lodash-es'
 
 import {
   buildSchemaDescription,
@@ -250,30 +251,59 @@ export async function fillFormWithAI(
     // Convert to label strings for backward compatibility
     const missingLabels = missingFields.map((m) => m.label)
 
-    // Generate detailed, conversational summary explaining what was filled
+    // Generate detailed, conversational summary explaining what was CHANGED
     const summaryParts: string[] = []
 
-    // Describe what was filled with context
+    // Helper to check if a value is meaningfully filled (not empty)
+    const isFilledValue = (v: unknown): boolean => {
+      if (v === undefined || v === null) return false
+      if (v === '') return false
+      if (Array.isArray(v) && v.length === 0) return false
+      return true
+    }
+
+    // Helper to check if two values are different
+    const valuesAreDifferent = (prev: unknown, next: unknown): boolean => {
+      // If prev wasn't filled but next is, it's different (newly added)
+      if (!isFilledValue(prev) && isFilledValue(next)) return true
+      // If both are not filled, not different
+      if (!isFilledValue(prev) && !isFilledValue(next)) return false
+      // Use lodash isEqual for deep equality comparison
+      return !isEqual(prev, next)
+    }
+
+    // Describe only what was CHANGED with context
     const filledDescriptions: string[] = []
     for (const [key, value] of Object.entries(filled)) {
-      if (value !== undefined && value !== null) {
+      if (isFilledValue(value)) {
         const field = request.fields[key]
+        const prevValue = currentData[key]
+
         if (field && typeof value !== 'object') {
-          filledDescriptions.push(`**${field.label || key}**: ${value}`)
+          // Simple field - check if changed
+          if (valuesAreDifferent(prevValue, value)) {
+            filledDescriptions.push(`**${field.label || key}**: ${value}`)
+          }
         } else if (typeof value === 'object' && value !== null) {
-          // For nested objects, describe the contents
+          // For nested objects, describe only the contents that changed
           const nested = value as Record<string, unknown>
+          const prevNested = (prevValue as Record<string, unknown>) || {}
           const nestedDescs: string[] = []
+
           for (const [nKey, nValue] of Object.entries(nested)) {
-            if (nValue !== undefined && nValue !== null) {
-              const fullKey = `${key}.${nKey}`
-              const nestedField =
-                field?.children?.[fullKey] || field?.children?.[nKey]
-              const label = nestedField?.label || nKey
-              if (Array.isArray(nValue)) {
-                nestedDescs.push(`${label}: ${nValue.join(', ')}`)
-              } else {
-                nestedDescs.push(`${label}: ${nValue}`)
+            if (isFilledValue(nValue)) {
+              const prevNestedValue = prevNested[nKey]
+              // Only include if the value actually changed
+              if (valuesAreDifferent(prevNestedValue, nValue)) {
+                const fullKey = `${key}.${nKey}`
+                const nestedField =
+                  field?.children?.[fullKey] || field?.children?.[nKey]
+                const label = nestedField?.label || nKey
+                if (Array.isArray(nValue)) {
+                  nestedDescs.push(`${label}: ${nValue.join(', ')}`)
+                } else {
+                  nestedDescs.push(`${label}: ${nValue}`)
+                }
               }
             }
           }
@@ -291,7 +321,7 @@ export async function fillFormWithAI(
         `I've filled in the following based on your input:\n\n${filledDescriptions.join('\n\n')}`
       )
     } else {
-      summaryParts.push("I couldn't extract any field values from your input.")
+      summaryParts.push('No new fields were extracted from your input.')
     }
 
     // Missing fields info is added by the hook with more detail
