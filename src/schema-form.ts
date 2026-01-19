@@ -12,6 +12,9 @@ export interface FormFieldDefinition {
   children?: Record<string, FormFieldDefinition>
   // For discriminated unions
   condition?: { field: string; value: any }
+  // For conditional requirements (field required when another field has a specific value)
+  // Use `value` for "equals" condition, `notValue` for "not equals" condition
+  requiredWhen?: { field: string; value?: any; notValue?: any }
   // For literal types
   literalOptions?: any[]
   literalOptionsDescriptions?: Record<string, string>
@@ -746,6 +749,15 @@ function generateFormFieldsFromSchema(
               required: isRequired,
               children,
             }
+
+            // Extract requiredWhen annotation if present
+            const requiredWhen = getCustomAnnotation(
+              propSig.type,
+              'requiredWhen'
+            )
+            if (requiredWhen) {
+              fields[fullPath].requiredWhen = requiredWhen
+            }
           }
           // Handle arrays of literals (like Schema.Array(Schema.Literal("a", "b")))
           else if (
@@ -768,6 +780,15 @@ function generateFormFieldsFromSchema(
               literalOptions, // Store options here for form builder to use
               literalOptionsDescriptions: literalDescriptions,
             }
+
+            // Extract requiredWhen annotation if present
+            const requiredWhen = getCustomAnnotation(
+              propSig.type,
+              'requiredWhen'
+            )
+            if (requiredWhen) {
+              fields[fullPath].requiredWhen = requiredWhen
+            }
           }
           // Handle arrays of primitives (strings, numbers, etc.)
           else if (elementType) {
@@ -783,6 +804,15 @@ function generateFormFieldsFromSchema(
                 type: 'array',
                 required: isRequired,
                 // No children - this is a primitive array
+              }
+
+              // Extract requiredWhen annotation if present
+              const requiredWhen = getCustomAnnotation(
+                propSig.type,
+                'requiredWhen'
+              )
+              if (requiredWhen) {
+                fields[fullPath].requiredWhen = requiredWhen
               }
             }
           }
@@ -807,6 +837,15 @@ function generateFormFieldsFromSchema(
               literalOptions,
               literalOptionsDescriptions: literalDescriptions,
             }
+
+            // Extract requiredWhen annotation if present
+            const requiredWhen = getCustomAnnotation(
+              propSig.type,
+              'requiredWhen'
+            )
+            if (requiredWhen) {
+              fields[fullPath].requiredWhen = requiredWhen
+            }
           }
         }
         // Handle Union types (like discriminated unions)
@@ -819,6 +858,15 @@ function generateFormFieldsFromSchema(
               type: 'object',
               required: isRequired,
               children,
+            }
+
+            // Extract requiredWhen annotation if present
+            const requiredWhen = getCustomAnnotation(
+              propSig.type,
+              'requiredWhen'
+            )
+            if (requiredWhen) {
+              fields[fullPath].requiredWhen = requiredWhen
             }
           }
         }
@@ -833,6 +881,15 @@ function generateFormFieldsFromSchema(
               required: isRequired,
               children,
             }
+
+            // Extract requiredWhen annotation if present
+            const requiredWhen = getCustomAnnotation(
+              propSig.type,
+              'requiredWhen'
+            )
+            if (requiredWhen) {
+              fields[fullPath].requiredWhen = requiredWhen
+            }
           }
         }
         // Handle primitive types
@@ -845,6 +902,15 @@ function generateFormFieldsFromSchema(
               label: formatLabel(keyName),
               type: fieldType,
               required: isRequired,
+            }
+
+            // Extract requiredWhen annotation if present
+            const requiredWhen = getCustomAnnotation(
+              propSig.type,
+              'requiredWhen'
+            )
+            if (requiredWhen) {
+              fieldDef.requiredWhen = requiredWhen
             }
 
             // Add literal options if this is a literal field
@@ -967,38 +1033,75 @@ function getLiteralValue(typeAst: any): any {
   }
 }
 
-// Extract literalDescriptions from schema annotations
-// Looks for a custom annotation with key containing 'literalDescriptions'
-function getLiteralDescriptions(
-  typeAst: any
-): Record<string, string> | undefined {
+// Extract custom annotation by key from schema annotations
+// Returns value if found, undefined otherwise
+// Handles Union types (from optional fields) by checking the inner types
+function getCustomAnnotation(typeAst: any, annotationKey: string): any {
   try {
     if (!typeAst) return undefined
 
-    // Check annotations on the type itself
-    const annotations = typeAst.annotations
-    if (!annotations) return undefined
+    // Helper to check annotations object
+    const checkAnnotations = (annotations: any): any => {
+      if (!annotations) return undefined
 
-    // Look through Symbol annotations for literalDescriptions
-    const symbols = Object.getOwnPropertySymbols(annotations)
-    for (const symbol of symbols) {
-      const symbolDesc = symbol.description || ''
-      if (symbolDesc.includes('literalDescriptions')) {
-        return annotations[symbol]
+      // Look through regular string keys first (for custom annotations)
+      for (const key of Object.keys(annotations)) {
+        if (key === annotationKey || key.includes(annotationKey)) {
+          return annotations[key]
+        }
+      }
+
+      // Also check Symbol annotations
+      const symbols = Object.getOwnPropertySymbols(annotations)
+      for (const symbol of symbols) {
+        const symbolDesc = symbol.description || ''
+        if (symbolDesc.includes(annotationKey)) {
+          return annotations[symbol]
+        }
+      }
+
+      return undefined
+    }
+
+    // Check annotations on the type itself
+    const result = checkAnnotations(typeAst.annotations)
+    if (result !== undefined) return result
+
+    // Handle Union types (from optional fields) - check inner types
+    if (typeAst._tag === 'Union' && Array.isArray(typeAst.types)) {
+      for (const innerType of typeAst.types) {
+        // Skip undefined/void types
+        if (
+          innerType._tag === 'UndefinedKeyword' ||
+          innerType._tag === 'VoidKeyword'
+        ) {
+          continue
+        }
+        const innerResult = checkAnnotations(innerType.annotations)
+        if (innerResult !== undefined) return innerResult
       }
     }
 
-    // Also check regular string keys (for custom annotations)
-    for (const key of Object.keys(annotations)) {
-      if (key.includes('literalDescriptions')) {
-        return annotations[key]
-      }
+    // Handle Transformation types
+    if (typeAst._tag === 'Transformation') {
+      const fromResult = getCustomAnnotation(typeAst.from, annotationKey)
+      if (fromResult !== undefined) return fromResult
+      const toResult = getCustomAnnotation(typeAst.to, annotationKey)
+      if (toResult !== undefined) return toResult
     }
 
     return undefined
   } catch {
     return undefined
   }
+}
+
+// Extract literalDescriptions from schema annotations
+// Looks for a custom annotation with key containing 'literalDescriptions'
+function getLiteralDescriptions(
+  typeAst: any
+): Record<string, string> | undefined {
+  return getCustomAnnotation(typeAst, 'literalDescriptions')
 }
 
 // Check if a union type consists only of literal values
@@ -1366,6 +1469,9 @@ function mergeSchemaFields(
       // Copy schema properties that might be missing from data fields
       if (schemaField.required !== undefined) {
         dataField.required = schemaField.required
+      }
+      if (schemaField.requiredWhen !== undefined) {
+        dataField.requiredWhen = schemaField.requiredWhen
       }
       if (schemaField.literalOptions) {
         dataField.literalOptions = schemaField.literalOptions

@@ -1,6 +1,7 @@
 'use client'
 
 import { Schema } from 'effect'
+import { merge } from 'lodash-es'
 import * as React from 'react'
 
 import type {
@@ -212,47 +213,6 @@ export function useAIFormFiller<T>({
   )
 
   /**
-   * @description Deep merge two objects, preserving existing values
-   */
-  const deepMergeData = React.useCallback(
-    (
-      existing: Record<string, unknown>,
-      newData: Record<string, unknown>
-    ): Record<string, unknown> => {
-      const result = { ...existing }
-
-      for (const [key, newValue] of Object.entries(newData)) {
-        if (newValue === undefined || newValue === null) {
-          continue
-        }
-
-        const existingValue = existing[key]
-
-        // If both are objects (not arrays), deep merge
-        if (
-          typeof existingValue === 'object' &&
-          existingValue !== null &&
-          !Array.isArray(existingValue) &&
-          typeof newValue === 'object' &&
-          newValue !== null &&
-          !Array.isArray(newValue)
-        ) {
-          result[key] = deepMergeData(
-            existingValue as Record<string, unknown>,
-            newValue as Record<string, unknown>
-          )
-        } else {
-          // Otherwise, new value takes precedence
-          result[key] = newValue
-        }
-      }
-
-      return result
-    },
-    []
-  )
-
-  /**
    * @description Find field definition by label (searches nested children too)
    */
   const findFieldByLabel = React.useCallback(
@@ -346,11 +306,8 @@ export function useAIFormFiller<T>({
         const filteredFilled = filterExcludedFromResponse(response.filled)
 
         // AI already returns merged data (CRUD approach)
-        // Just deep merge to ensure we preserve any fields AI didn't return
-        const newData = deepMergeData(
-          (data || {}) as Record<string, unknown>,
-          filteredFilled
-        ) as Partial<T>
+        // Use lodash merge to deep merge and preserve any fields AI didn't return
+        const newData = merge({}, data || {}, filteredFilled) as Partial<T>
         setData(newData)
 
         // Notify parent of data change
@@ -394,7 +351,6 @@ export function useAIFormFiller<T>({
       onDataChange,
       filterExcludedFromResponse,
       buildMissingFieldsMessage,
-      deepMergeData,
     ]
   )
 

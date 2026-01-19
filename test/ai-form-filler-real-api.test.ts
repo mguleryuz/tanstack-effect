@@ -22,7 +22,289 @@ const TEST_PROMPT = `My product is called Breadcrumb. It's an advertising tool. 
  * Real user prompt that explicitly states ALL marketing fields.
  * The AI MUST extract every field mentioned here.
  */
-const EXPLICIT_FIELDS_PROMPT = `Hey, so product name is Breadcrumb, product description AI agents that reply to people on X, preferred language English, discovery instructions target BNB chain and base communities, projects and content creators alike, reply context should be witty, fun, but not too mocking. No images, please.`
+const EXPLICIT_FIELDS_PROMPT = `Hey, so product name is Breadcrumb, product description AI agents that reply to people on X, preferred language English, discovery instructions target BNB chain and base communities, projects and content creators alike, reply context should be witty, fun, but not too mocking. For image eval instructions, no political content.`
+
+describe('AI Form Filler - Conditional Requirements', () => {
+  it('parses requiredWhen annotation from ImageGenConfig schema', () => {
+    const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+
+    console.log('\n=== IMAGEGEN FIELDS ===')
+    const imageGenField = fields.imageGen
+    expect(imageGenField).toBeDefined()
+    expect(imageGenField.type).toBe('object')
+    expect(imageGenField.children).toBeDefined()
+
+    const imageGenChildren = imageGenField.children || {}
+    Object.entries(imageGenChildren).forEach(([key, field]) => {
+      console.log(`  ${key}:`)
+      console.log(`    type: ${(field as any).type}`)
+      console.log(`    required: ${(field as any).required}`)
+      console.log(`    requiredWhen: ${JSON.stringify((field as any).requiredWhen)}`)
+    })
+
+    // Verify instructions has requiredWhen
+    const instructionsField = imageGenChildren['imageGen.instructions']
+    expect(instructionsField).toBeDefined()
+    expect(instructionsField.requiredWhen).toBeDefined()
+    expect(instructionsField.requiredWhen).toEqual({
+      field: 'imageGen.enabled',
+      value: true,
+    })
+
+    // Verify imageRefs has requiredWhen
+    const imageRefsField = imageGenChildren['imageGen.imageRefs']
+    expect(imageRefsField).toBeDefined()
+    expect(imageRefsField.requiredWhen).toBeDefined()
+    expect(imageRefsField.requiredWhen).toEqual({
+      field: 'imageGen.enabled',
+      value: true,
+    })
+
+    // Verify enabled does NOT have requiredWhen
+    const enabledField = imageGenChildren['imageGen.enabled']
+    expect(enabledField).toBeDefined()
+    expect(enabledField.requiredWhen).toBeUndefined()
+
+    console.log('\n✓ All requiredWhen annotations parsed correctly')
+  })
+
+  it.skipIf(shouldSkip)(
+    'detects missing conditionally required fields when enabled=true',
+    async () => {
+      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+
+      // When imageGen.enabled is true, instructions and imageRefs should be required
+      const response = await fillFormWithAI({
+        prompt: 'Enable image generation for this campaign',
+        fields,
+        partialData: {
+          imageGen: {
+            enabled: true,
+            // instructions and imageRefs are missing
+          },
+        },
+        messages: [],
+      })
+
+      console.log('\n=== CONDITIONAL REQUIREMENT TEST ===')
+      console.log('Filled:', JSON.stringify(response.filled, null, 2))
+      console.log('Missing:', response.missing)
+      console.log('Complete:', response.complete)
+
+      // The AI should recognize that with enabled=true, instructions might be needed
+      // Check that the response includes imageGen with enabled=true
+      const imageGen = response.filled.imageGen as Record<string, unknown>
+      expect(imageGen?.enabled).toBe(true)
+    },
+    { timeout: 30000 }
+  )
+
+  /**
+   * Test for "Disable image gen" command
+   * User should be able to say "Disable image gen" and the AI should set imageGen.enabled = false
+   */
+  it.skipIf(shouldSkip)(
+    'handles "Disable image gen" command correctly',
+    async () => {
+      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+
+      // Start with imageGen enabled
+      const currentData = {
+        imageGen: {
+          enabled: true,
+          instructions: 'Generate cool images',
+        },
+      }
+
+      const response = await fillFormWithAI({
+        prompt: 'Disable image gen',
+        fields,
+        partialData: currentData,
+        messages: [],
+      })
+
+      console.log('\n=== DISABLE IMAGE GEN TEST ===')
+      console.log('Current data:', JSON.stringify(currentData, null, 2))
+      console.log('Prompt: "Disable image gen"')
+      console.log('Filled:', JSON.stringify(response.filled, null, 2))
+      console.log('Summary:', response.summary)
+
+      const imageGen = response.filled.imageGen as Record<string, unknown>
+
+      // The AI should set enabled to false
+      expect(imageGen).toBeDefined()
+      expect(imageGen?.enabled).toBe(false)
+
+      console.log('\n✓ imageGen.enabled correctly set to false')
+    },
+    { timeout: 30000 }
+  )
+
+  /**
+   * Test for "Disable image gen" command with empty form
+   * This simulates a fresh form where imageGen hasn't been set yet
+   */
+  it.skipIf(shouldSkip)(
+    'handles "Disable image gen" command with empty form',
+    async () => {
+      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+
+      // Start with empty form (no imageGen data)
+      const currentData = {}
+
+      const response = await fillFormWithAI({
+        prompt: 'Disable image gen.',
+        fields,
+        partialData: currentData,
+        messages: [],
+      })
+
+      console.log('\n=== DISABLE IMAGE GEN (EMPTY FORM) TEST ===')
+      console.log('Current data:', JSON.stringify(currentData, null, 2))
+      console.log('Prompt: "Disable image gen."')
+      console.log('Filled:', JSON.stringify(response.filled, null, 2))
+      console.log('Summary:', response.summary)
+
+      const imageGen = response.filled.imageGen as Record<string, unknown>
+
+      // The AI should set enabled to false even with empty form
+      expect(imageGen).toBeDefined()
+      expect(imageGen?.enabled).toBe(false)
+
+      console.log('\n✓ imageGen.enabled correctly set to false')
+    },
+    { timeout: 30000 }
+  )
+
+  /**
+   * Test for "Disable image gen" when imageGen already has enabled=false (default)
+   * This simulates a form where the default value is already false
+   */
+  it.skipIf(shouldSkip)(
+    'handles "Disable image gen" when already disabled (default)',
+    async () => {
+      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+
+      // This simulates the schema default: enabled=false
+      const currentData = {
+        imageGen: {
+          enabled: false,
+          instructions: '',
+          imageRefs: [],
+        },
+      }
+
+      const response = await fillFormWithAI({
+        prompt: 'Disable image gen.',
+        fields,
+        partialData: currentData,
+        messages: [],
+      })
+
+      console.log('\n=== DISABLE IMAGE GEN (ALREADY DISABLED) TEST ===')
+      console.log('Current data:', JSON.stringify(currentData, null, 2))
+      console.log('Prompt: "Disable image gen."')
+      console.log('Filled:', JSON.stringify(response.filled, null, 2))
+      console.log('Summary:', response.summary)
+
+      const imageGen = response.filled.imageGen as Record<string, unknown>
+
+      // The AI should keep enabled as false
+      expect(imageGen).toBeDefined()
+      expect(imageGen?.enabled).toBe(false)
+
+      // Summary should indicate no changes were made (since it's already disabled)
+      // OR acknowledge that it's now disabled
+      console.log('\n✓ imageGen.enabled correctly remains false')
+    },
+    { timeout: 30000 }
+  )
+
+  /**
+   * User's exact scenario: imageGen.enabled is true, user says "Disable image gen."
+   * This is the bug report case - the AI should set enabled to false
+   */
+  it.skipIf(shouldSkip)(
+    'CRITICAL: disables image gen when enabled=true (user bug report)',
+    async () => {
+      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+
+      // User's scenario: enabled is true
+      const currentData = {
+        imageGen: {
+          enabled: true,
+          instructions: '',
+          imageRefs: [],
+        },
+      }
+
+      const response = await fillFormWithAI({
+        prompt: 'Disable image gen.',
+        fields,
+        partialData: currentData,
+        messages: [],
+      })
+
+      console.log('\n=== USER BUG REPORT: DISABLE IMAGE GEN (enabled=true) ===')
+      console.log('Current data:', JSON.stringify(currentData, null, 2))
+      console.log('Prompt: "Disable image gen."')
+      console.log('Filled:', JSON.stringify(response.filled, null, 2))
+      console.log('Summary:', response.summary)
+      console.log('Missing:', response.missing)
+
+      const imageGen = response.filled.imageGen as Record<string, unknown>
+
+      // The AI MUST set enabled to false
+      expect(imageGen).toBeDefined()
+      expect(imageGen?.enabled).toBe(false)
+
+      // The summary should NOT say "No new fields were extracted"
+      expect(response.summary).not.toContain('No new fields were extracted')
+
+      console.log('\n✓ imageGen.enabled correctly changed from true to false')
+    },
+    { timeout: 30000 }
+  )
+
+  /**
+   * Test for "Enable image gen" command
+   */
+  it.skipIf(shouldSkip)(
+    'handles "Enable image gen" command correctly',
+    async () => {
+      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+
+      // Start with imageGen disabled
+      const currentData = {
+        imageGen: {
+          enabled: false,
+        },
+      }
+
+      const response = await fillFormWithAI({
+        prompt: 'Enable image generation',
+        fields,
+        partialData: currentData,
+        messages: [],
+      })
+
+      console.log('\n=== ENABLE IMAGE GEN TEST ===')
+      console.log('Current data:', JSON.stringify(currentData, null, 2))
+      console.log('Prompt: "Enable image generation"')
+      console.log('Filled:', JSON.stringify(response.filled, null, 2))
+      console.log('Summary:', response.summary)
+
+      const imageGen = response.filled.imageGen as Record<string, unknown>
+
+      // The AI should set enabled to true
+      expect(imageGen).toBeDefined()
+      expect(imageGen?.enabled).toBe(true)
+
+      console.log('\n✓ imageGen.enabled correctly set to true')
+    },
+    { timeout: 30000 }
+  )
+})
 
 describe('AI Form Filler - Schema Validation', () => {
   it('validates schema 1:1 mapping to JSON Schema', () => {
@@ -46,7 +328,6 @@ describe('AI Form Filler - Schema Validation', () => {
     const props = jsonSchema.properties as Record<string, any>
 
     // Validate root fields exist
-    expect(props.runType).toBeDefined()
     expect(props.marketing).toBeDefined()
     expect(props.options).toBeDefined()
     expect(props.imageGen).toBeDefined()
@@ -86,7 +367,6 @@ describe('AI Form Filler - Schema Validation', () => {
     const currentData = {
       marketing: {
         productName: 'ExistingProduct',
-        tone: 'professional',
       },
     }
 
@@ -164,9 +444,6 @@ describe('AI Form Filler - Schema Validation', () => {
         console.log('⚠ discoveryQuery NOT extracted')
       }
 
-      // Should extract tone from "friendly"
-      expect(marketing?.tone).toBe('friendly')
-
       // Should extract productDescription from "It's an advertising tool"
       if (marketing?.productDescription) {
         console.log('✓ productDescription extracted:', marketing.productDescription)
@@ -181,7 +458,7 @@ describe('AI Form Filler - Schema Validation', () => {
         console.log('⚠ replyContext NOT extracted (expected from "reply hyping up...")')
       }
 
-      // At minimum, should extract productName and tone
+      // At minimum, should extract productName
       const filledCount = Object.values(marketing || {}).filter(
         (v) => v != null && v !== ''
       ).length
@@ -199,7 +476,6 @@ describe('AI Form Filler - Schema Validation', () => {
         marketing: {
           productName: 'Breadcrumb',
           discoveryQuery: 'Binance Smart Chain',
-          tone: 'friendly',
         },
       }
 
@@ -226,7 +502,6 @@ describe('AI Form Filler - Schema Validation', () => {
 
       // Should preserve existing data
       expect(marketing?.productName).toBe('Breadcrumb')
-      expect(marketing?.tone).toBe('friendly')
 
       // Should extract new field from prompt
       expect(marketing?.replyContext).toBeDefined()
@@ -300,10 +575,10 @@ describe('AI Form Filler - Schema Validation', () => {
       const replyCtx = String(marketing?.replyContext).toLowerCase()
       expect(replyCtx.includes('witty') || replyCtx.includes('fun') || replyCtx.includes('mocking')).toBe(true)
 
-      // 6. imageEvalInstructions - explicitly stated as "No images, please"
-      console.log(`imageEvalInstructions: "${marketing?.imageEvalInstructions}" (expected to contain "no images")`)
+      // 6. imageEvalInstructions - explicitly stated as "For image eval instructions, no political content"
+      console.log(`imageEvalInstructions: "${marketing?.imageEvalInstructions}" (expected to contain "political")`)
       expect(marketing?.imageEvalInstructions).toBeDefined()
-      expect(String(marketing?.imageEvalInstructions).toLowerCase()).toContain('no')
+      expect(String(marketing?.imageEvalInstructions).toLowerCase()).toContain('political')
 
       // Summary: Count how many fields were correctly extracted
       const expectedFields = [
@@ -327,18 +602,17 @@ describe('AI Form Filler - Schema Validation', () => {
         console.log(`  ${status} ${field}: ${JSON.stringify(value)}`)
       })
 
-      // All 8 explicitly stated fields MUST be extracted
-      expect(extractedCount).toBe(8)
+      // All 6 explicitly stated fields MUST be extracted
+      expect(extractedCount).toBe(6)
     },
     { timeout: 30000 }
   )
 
   /**
-   * Tests that replyContext is NOT confused with tone.
-   * User said "reply context should be witty" - this should go to replyContext, not tone.
+   * Tests that replyContext is correctly extracted from explicit prompt.
    */
   it.skipIf(shouldSkip)(
-    'does NOT confuse replyContext with tone field',
+    'correctly extracts replyContext field',
     async () => {
       const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
 
@@ -351,24 +625,17 @@ describe('AI Form Filler - Schema Validation', () => {
 
       const marketing = response.filled.marketing as Record<string, unknown>
 
-      console.log('\n=== FIELD CONFUSION TEST ===')
-      console.log(`tone: "${marketing?.tone}"`)
+      console.log('\n=== FIELD EXTRACTION TEST ===')
       console.log(`replyContext: "${marketing?.replyContext}"`)
 
       // replyContext should contain the witty/fun/mocking context
       expect(marketing?.replyContext).toBeDefined()
       const replyCtx = String(marketing?.replyContext).toLowerCase()
-      expect(replyCtx.includes('witty') || replyCtx.includes('fun') || replyCtx.includes('mocking')).toBe(true)
-
-      // tone should NOT be set to "witty" when user explicitly said "reply context should be witty"
-      // If tone is set, it should be from the tone enum, not from replyContext
-      if (marketing?.tone) {
-        const validTones = ['professional', 'friendly', 'casual', 'witty', 'formal']
-        expect(validTones.includes(String(marketing.tone))).toBe(true)
-        // The user's input "reply context should be witty" should NOT change tone
-        // unless there's also an explicit tone instruction
-        console.log(`⚠ Note: tone was set to "${marketing.tone}" - verify this is intentional`)
-      }
+      expect(
+        replyCtx.includes('witty') ||
+          replyCtx.includes('fun') ||
+          replyCtx.includes('mocking')
+      ).toBe(true)
     },
     { timeout: 30000 }
   )

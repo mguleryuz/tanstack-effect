@@ -56,6 +56,17 @@ function formatField(field: FormFieldDefinition, indent = ''): string {
     line += `: ${field.type}`
   }
 
+  // Add conditional requirement indicator
+  if (field.requiredWhen) {
+    if (field.requiredWhen.value !== undefined) {
+      line += ` [required when ${field.requiredWhen.field} = ${JSON.stringify(field.requiredWhen.value)}]`
+    } else if (field.requiredWhen.notValue !== undefined) {
+      line += ` [required when ${field.requiredWhen.field} != ${JSON.stringify(field.requiredWhen.notValue)}]`
+    }
+  } else if (field.required) {
+    line += ` [required]`
+  }
+
   // Add description as comment
   if (field.description) {
     line += `  // ${field.description}`
@@ -104,22 +115,15 @@ export function buildSchemaDescription(
  * MUST remain schema-agnostic - no hardcoded field names!
  */
 export function buildSystemPrompt(): string {
-  return `You are a form-filling assistant. Extract ALL data from natural language into schema fields.
+  return `You are a form-filling assistant. Your job is to extract ALL information from natural language into a JSON form.
 
-HOW TO PARSE:
-1. Identify field references in the text by matching words to camelCase schema keys:
-   - "product name" matches productName
-   - "product description" matches productDescription  
-   - "reply context" matches replyContext
-   - "preferred language" matches preferredLanguages
-   - "discovery instructions" matches discoveryInstructions
-   - "image" + "instructions" or "no images" matches imageEvalInstructions
-
-2. The VALUE for each field is everything after the field reference until the next field reference begins.
-
-3. For array fields, wrap in array and convert (e.g., "English" → ["en"]).
-
-CRITICAL: Every field reference in the user's text MUST appear in your output. Do not skip any.`
+KEY RULES:
+1. Extract EVERY field the user mentions - do not skip any
+2. Match "X name" or "X is Y" to the appropriate field (e.g., "product name is Z" → productName: "Z")  
+3. Match "X description" or "it's a Y" to description fields (e.g., "product description is Z" → productDescription: "Z")
+4. Convert language names to ISO codes in arrays (English→en, Chinese→zh, Spanish→es, etc.)
+5. Never invent values for fields the user didn't mention
+6. Preserve existing form data unless explicitly changed`
 }
 
 /**
@@ -149,46 +153,34 @@ export function buildUnifiedPrompt(params: {
 }): string {
   const { userPrompt, schemaDescription, currentData } = params
 
-  const prompt = `Extract ALL form field values from the user's natural language input.
+  const prompt = `Extract form data from the user's input.
 
-SCHEMA:
+SCHEMA (fields to fill):
 ${schemaDescription}
 
-CURRENT DATA:
+CURRENT DATA (preserve these values):
 ${JSON.stringify(currentData, null, 2)}
 
 USER INPUT:
 "${userPrompt}"
 
-EXTRACTION ALGORITHM:
+TASK: Parse the user's input and extract values for each field mentioned.
 
-STEP 1 - Identify every field mention in the input:
-Look for words that match schema field keys (split camelCase into words):
-- "product name" → productName
-- "product description" → productDescription
-- "preferred language" → preferredLanguages  
-- "discovery instructions" → discoveryInstructions
-- "reply context" → replyContext
-- "no images" or "image instructions" → imageEvalInstructions
+Field matching guide:
+- "product name X" or "called X" → productName: "X"
+- "product description Y" or "it's a Y" → productDescription: "Y"
+- "preferred language Z" or "languages: Z" → preferredLanguages: [ISO codes]
+- "discovery instructions W" or "for discovery, W" → discoveryInstructions: "W"
+- "reply context V" or "reply V" → replyContext: "V"
+- "image eval instructions U" or "for images, U" → imageEvalInstructions: "U"
+- "disable X" → set X's enabled field to false
+- "enable X" → set X's enabled field to true
 
-STEP 2 - Extract the value for each field:
-The value is everything AFTER the field name until the NEXT field name starts.
-Patterns to recognize:
-- "[field] is [value]" → value is after "is"
-- "[field] [value]" → value is right after field name (no "is" needed)
-- "[field], [value]" → value is after comma
+Language ISO codes: en=English, zh=Chinese, es=Spanish, fr=French, de=German, ja=Japanese, ko=Korean
 
-STEP 3 - Format values by type:
-- String fields: use exact text
-- Array fields: wrap in array, convert languages (English → ["en"])
-- Negative instructions: "No images" → imageEvalInstructions: "No images"
+IMPORTANT: Extract ALL fields mentioned. Do not skip any. Do not invent values.
 
-CRITICAL RULES:
-- Extract EVERY field the user mentioned - count them to verify
-- Do NOT invent values for fields user didn't mention
-- Preserve all CURRENT DATA values
-
-OUTPUT: Complete JSON with current data + all extracted fields.`
+Return merged JSON with current data + extracted values.`
 
   return prompt
 }

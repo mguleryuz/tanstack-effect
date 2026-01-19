@@ -133,6 +133,10 @@ export interface FormFieldProps {
   onChange: (value: any) => void
   error?: string
   minimal?: boolean
+  /**
+   * Full form data for evaluating conditional requirements (requiredWhen)
+   */
+  formData?: any
 }
 
 export interface NestedFormProps<T = any> {

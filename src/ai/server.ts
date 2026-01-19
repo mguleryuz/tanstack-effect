@@ -4,7 +4,7 @@
  */
 
 import { google } from '@ai-sdk/google'
-import { generateText, jsonSchema, Output } from 'ai'
+import { generateText } from 'ai'
 import { isEqual } from 'lodash-es'
 
 import {
@@ -151,6 +151,7 @@ function collectAllFields(
 /**
  * @description Detect which required fields are missing from filled data
  * Handles both flat keys and nested paths (e.g., "marketing.productName")
+ * Also considers conditionally required fields (requiredWhen)
  * Returns array of objects with both key and label for proper lookups
  */
 function detectMissingFields(
@@ -162,11 +163,38 @@ function detectMissingFields(
 
   return allFields
     .filter(({ key, field }) => {
-      if (!field.required) return false
+      // Check static requirement
+      if (field.required) {
+        // Check nested path
+        const value = getNestedValue(filled, key)
+        return value === undefined || value === null || value === ''
+      }
 
-      // Check nested path
-      const value = getNestedValue(filled, key)
-      return value === undefined || value === null || value === ''
+      // Check conditional requirement
+      if (field.requiredWhen) {
+        const {
+          field: conditionField,
+          value: expectedValue,
+          notValue,
+        } = field.requiredWhen
+        const conditionValue = getNestedValue(filled, conditionField)
+
+        // Check if condition is met (either value equals or notValue not equals)
+        let conditionMet = false
+        if (expectedValue !== undefined) {
+          conditionMet = conditionValue === expectedValue
+        } else if (notValue !== undefined) {
+          conditionMet = conditionValue !== notValue
+        }
+
+        // Only mark as missing if condition is met AND value is missing
+        if (conditionMet) {
+          const value = getNestedValue(filled, key)
+          return value === undefined || value === null || value === ''
+        }
+      }
+
+      return false
     })
     .map(({ key, field }) => ({
       key,
@@ -177,7 +205,7 @@ function detectMissingFields(
 /**
  * @description Core function to fill form with AI
  */
-const DEFAULT_MODEL = 'gemini-2.5-flash'
+const DEFAULT_MODEL = 'gemini-2.5-flash-lite'
 
 export async function fillFormWithAI(
   request: AIFormFillerRequest
@@ -207,26 +235,31 @@ export async function fillFormWithAI(
 
     const fullUserMessage = userMessage
 
-    // Build JSON Schema for structured output
-    const schema = buildJsonSchema(request.fields)
-
+    // Generate text response (structured output mode was limiting extraction)
     const result = await generateText({
       model: google(DEFAULT_MODEL),
-      prompt: `${systemPrompt}\n\n${fullUserMessage}`,
+      prompt: `${systemPrompt}\n\n${fullUserMessage}\n\nRespond ONLY with valid JSON. No markdown code blocks.`,
       // Temperature 0 for most deterministic extraction
       temperature: 0,
-      output: Output.object({
-        schema: jsonSchema(schema as Parameters<typeof jsonSchema>[0]),
-      }),
     })
 
-    if (!result.output) {
-      throw new Error('AI returned no structured output')
+    if (!result.text) {
+      throw new Error('AI returned no response')
     }
 
-    // AI output already includes existing values (provided in context)
-    // The AI is instructed to preserve them
-    const filled = result.output as Record<string, unknown>
+    // Parse JSON from response (strip markdown code blocks if present)
+    let jsonText = result.text.trim()
+    if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/^```json?\n?/, '').replace(/\n?```$/, '')
+    }
+
+    let filled: Record<string, unknown>
+    try {
+      filled = JSON.parse(jsonText)
+    } catch {
+      console.error('Failed to parse AI response as JSON:', result.text)
+      throw new Error('AI returned invalid JSON')
+    }
 
     // Detect missing required fields from the MERGED result
     const missingFields = detectMissingFields(request.fields, filled)
