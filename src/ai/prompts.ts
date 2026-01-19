@@ -24,6 +24,7 @@ import type { FormFieldDefinition } from '../schema-form'
 
 /**
  * @description Format a field with proper indentation for nested structure
+ * Includes label for better AI field matching
  */
 function formatField(field: FormFieldDefinition, indent = ''): string {
   const simpleKey = field.key.includes('.')
@@ -32,11 +33,23 @@ function formatField(field: FormFieldDefinition, indent = ''): string {
 
   let line = `${indent}"${simpleKey}"`
 
-  // Add type hint
-  if (field.literalOptions && field.literalOptions.length > 0) {
+  // Add label in parentheses if different from key
+  if (
+    field.label &&
+    field.label.toLowerCase().replace(/\s+/g, '') !== simpleKey.toLowerCase()
+  ) {
+    line += ` (${field.label})`
+  }
+
+  // Add type hint - check array type FIRST to handle arrays with literal options correctly
+  if (field.type === 'array') {
+    if (field.literalOptions && field.literalOptions.length > 0) {
+      line += `: [${field.literalOptions.map((o) => `"${o}"`).join(' | ')}]`
+    } else {
+      line += `: [...]`
+    }
+  } else if (field.literalOptions && field.literalOptions.length > 0) {
     line += `: ${field.literalOptions.map((o) => `"${o}"`).join(' | ')}`
-  } else if (field.type === 'array') {
-    line += `: [...]`
   } else if (field.type === 'object') {
     line += `: { ... }`
   } else {
@@ -88,25 +101,27 @@ export function buildSchemaDescription(
 
 /**
  * @description Build the system prompt for form filling
+ * MUST remain schema-agnostic - no hardcoded field names!
  */
 export function buildSystemPrompt(): string {
-  return `You are a form-filling assistant. Extract data ONLY from what the user explicitly says.
+  return `You are a form-filling assistant. Extract ALL data from natural language into schema fields.
 
-EXTRACTION PATTERNS - extract these when user says:
-- "called X" or "named X" → productName = X
-- "it's a X" or "it does X" or "X tool" → productDescription = that phrase
-- "target X" or "search for X" or "find X" → discoveryQuery = X
-- "reply by X" or "reply with X" or "want it to reply X" → replyContext = that description
-- "friendly/professional/witty" → tone = that word
+HOW TO PARSE:
+1. Identify field references in the text by matching words to camelCase schema keys:
+   - "product name" matches productName
+   - "product description" matches productDescription  
+   - "reply context" matches replyContext
+   - "CTA" or "cta style" matches ctaStyle
+   - "preferred language" matches preferredLanguages
+   - "discovery instructions" matches discoveryInstructions
+   - "image" + "instructions" or "no images" matches imageEvalInstructions
 
-CRITICAL RULES:
-✓ Extract MULTIPLE fields from one sentence
-✓ Use user's EXACT words for string fields (productDescription, replyContext, etc.)
-✓ ONLY fill fields the user mentioned
+2. The VALUE for each field is everything after the field reference until the next field reference begins.
 
-✗ NEVER invent URLs - leave productUrl empty unless user provides one
-✗ NEVER fill options/numbers unless user specifies them
-✗ NEVER guess or make up values`
+3. For enum fields, map the value to the closest valid option.
+   For array fields, wrap in array and convert (e.g., "English" → ["en"]).
+
+CRITICAL: Every field reference in the user's text MUST appear in your output. Do not skip any.`
 }
 
 /**
@@ -126,6 +141,7 @@ export function buildUserPrompt(
 
 /**
  * @description Unified prompt builder - simple CRUD approach
+ * MUST remain schema-agnostic - no hardcoded field names!
  */
 export function buildUnifiedPrompt(params: {
   userPrompt: string
@@ -135,30 +151,50 @@ export function buildUnifiedPrompt(params: {
 }): string {
   const { userPrompt, schemaDescription, currentData } = params
 
-  let prompt = `You extract form data from natural language.
+  const prompt = `Extract ALL form field values from the user's natural language input.
 
-## FORM SCHEMA:
-
+SCHEMA:
 ${schemaDescription}
 
-## EXTRACTION PATTERNS:
-
-Match these patterns in user text:
-- "called X", "named X", "is called X" → productName = X
-- "it's a X", "is a X", "X tool", "X platform" → productDescription = that phrase
-- "target X", "focus on X", "for X chain" → discoveryQuery = X
-- "reply X", "want it to reply X", "respond by X" → replyContext = the description
-- "friendly", "professional", "witty" → tone = that word
-
-## CURRENT DATA:
-
+CURRENT DATA:
 ${JSON.stringify(currentData, null, 2)}
 
-## NOW EXTRACT FROM:
-
+USER INPUT:
 "${userPrompt}"
 
-Return JSON with CURRENT DATA values + all extracted fields.`
+EXTRACTION ALGORITHM:
+
+STEP 1 - Identify every field mention in the input:
+Look for words that match schema field keys (split camelCase into words):
+- "product name" → productName
+- "product description" → productDescription
+- "product URL" or "URL" → productUrl
+- "CTA" → ctaStyle
+- "preferred language" → preferredLanguages  
+- "discovery instructions" → discoveryInstructions
+- "reply context" → replyContext
+- "no images" or "image instructions" → imageEvalInstructions
+
+STEP 2 - Extract the value for each field:
+The value is everything AFTER the field name until the NEXT field name starts.
+Patterns to recognize:
+- "[field] is [value]" → value is after "is"
+- "[field] [value]" → value is right after field name (no "is" needed)
+- "[field], [value]" → value is after comma
+
+STEP 3 - Format values by type:
+- String fields: use exact text
+- Enum fields: pick matching option (CTA "subtle" → ctaStyle: "subtle")
+- Array fields: wrap in array, convert languages (English → ["en"])
+- Negative instructions: "No images" → imageEvalInstructions: "No images"
+
+CRITICAL RULES:
+- Extract EVERY field the user mentioned - count them to verify
+- Do NOT confuse similar fields (replyContext ≠ tone)
+- Do NOT invent values for fields user didn't mention
+- Preserve all CURRENT DATA values
+
+OUTPUT: Complete JSON with current data + all extracted fields.`
 
   return prompt
 }
