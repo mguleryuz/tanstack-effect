@@ -116,6 +116,14 @@ export function useAIFormFiller<T>({
   const [error, setError] = React.useState<Error | null>(null)
   const [summary, setSummary] = React.useState<string | null>(null)
 
+  // Keep internal data in sync with external form changes (manual edits)
+  // This ensures AI always works with the latest form state
+  React.useEffect(() => {
+    if (initialData !== null && initialData !== undefined) {
+      setData(initialData as Partial<T>)
+    }
+  }, [initialData])
+
   // Set of excluded fields for quick lookup
   const excludeFieldsSet = React.useMemo(
     () => new Set(excludeFields),
