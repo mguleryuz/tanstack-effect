@@ -111,15 +111,13 @@ HOW TO PARSE:
    - "product name" matches productName
    - "product description" matches productDescription  
    - "reply context" matches replyContext
-   - "CTA" or "cta style" matches ctaStyle
    - "preferred language" matches preferredLanguages
    - "discovery instructions" matches discoveryInstructions
    - "image" + "instructions" or "no images" matches imageEvalInstructions
 
 2. The VALUE for each field is everything after the field reference until the next field reference begins.
 
-3. For enum fields, map the value to the closest valid option.
-   For array fields, wrap in array and convert (e.g., "English" → ["en"]).
+3. For array fields, wrap in array and convert (e.g., "English" → ["en"]).
 
 CRITICAL: Every field reference in the user's text MUST appear in your output. Do not skip any.`
 }
@@ -168,8 +166,6 @@ STEP 1 - Identify every field mention in the input:
 Look for words that match schema field keys (split camelCase into words):
 - "product name" → productName
 - "product description" → productDescription
-- "product URL" or "URL" → productUrl
-- "CTA" → ctaStyle
 - "preferred language" → preferredLanguages  
 - "discovery instructions" → discoveryInstructions
 - "reply context" → replyContext
@@ -184,13 +180,11 @@ Patterns to recognize:
 
 STEP 3 - Format values by type:
 - String fields: use exact text
-- Enum fields: pick matching option (CTA "subtle" → ctaStyle: "subtle")
 - Array fields: wrap in array, convert languages (English → ["en"])
 - Negative instructions: "No images" → imageEvalInstructions: "No images"
 
 CRITICAL RULES:
 - Extract EVERY field the user mentioned - count them to verify
-- Do NOT confuse similar fields (replyContext ≠ tone)
 - Do NOT invent values for fields user didn't mention
 - Preserve all CURRENT DATA values
 

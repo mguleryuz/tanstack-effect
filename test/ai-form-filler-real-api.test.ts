@@ -22,7 +22,7 @@ const TEST_PROMPT = `My product is called Breadcrumb. It's an advertising tool. 
  * Real user prompt that explicitly states ALL marketing fields.
  * The AI MUST extract every field mentioned here.
  */
-const EXPLICIT_FIELDS_PROMPT = `Hey, so product name is Breadcrumb, product description AI agents that reply to people on X, product URL breadcrumb.cash, CTA subtle, preferred language English, discovery instructions, BNB chain and base communities, projects and content creators alike, reply context should be witty, fun, but not too mocking. No images, please.`
+const EXPLICIT_FIELDS_PROMPT = `Hey, so product name is Breadcrumb, product description AI agents that reply to people on X, preferred language English, discovery instructions target BNB chain and base communities, projects and content creators alike, reply context should be witty, fun, but not too mocking. No images, please.`
 
 describe('AI Form Filler - Schema Validation', () => {
   it('validates schema 1:1 mapping to JSON Schema', () => {
@@ -68,9 +68,6 @@ describe('AI Form Filler - Schema Validation', () => {
       'searchProduct',
       'productName',
       'productDescription',
-      'productUrl',
-      'tone',
-      'ctaStyle',
       'discoveryInstructions',
       'replyContext',
       'preferredLanguages',
@@ -244,8 +241,6 @@ describe('AI Form Filler - Schema Validation', () => {
    * This test uses a real user prompt where they explicitly state:
    * - productName: "Breadcrumb"
    * - productDescription: "AI agents that reply to people on X"
-   * - productUrl: "breadcrumb.cash"
-   * - ctaStyle: "subtle"
    * - preferredLanguages: "English" (should be ["en"])
    * - discoveryInstructions: "BNB chain and base communities, projects and content creators alike"
    * - replyContext: "witty, fun, but not too mocking"
@@ -254,12 +249,9 @@ describe('AI Form Filler - Schema Validation', () => {
    * Known issues this test catches:
    * 1. AI fails to extract productName even when explicitly stated
    * 2. AI fails to extract productDescription even when explicitly stated
-   * 3. AI fails to extract productUrl even when explicitly stated
-   * 4. AI fails to extract ctaStyle even when explicitly stated
-   * 5. AI fails to extract preferredLanguages even when explicitly stated
-   * 6. AI fails to extract discoveryInstructions even when explicitly stated
-   * 7. AI confuses replyContext with tone field
-   * 8. AI fails to extract imageEvalInstructions even when explicitly stated
+   * 3. AI fails to extract preferredLanguages even when explicitly stated
+   * 4. AI fails to extract discoveryInstructions even when explicitly stated
+   * 5. AI fails to extract imageEvalInstructions even when explicitly stated
    */
   it.skipIf(shouldSkip)(
     'extracts ALL explicitly stated fields from user prompt',
@@ -289,36 +281,26 @@ describe('AI Form Filler - Schema Validation', () => {
       expect(marketing?.productDescription).toBeDefined()
       expect(String(marketing?.productDescription).toLowerCase()).toContain('ai agent')
 
-      // 3. productUrl - explicitly stated as "breadcrumb.cash"
-      console.log(`productUrl: "${marketing?.productUrl}" (expected: "breadcrumb.cash" or with https)`)
-      expect(marketing?.productUrl).toBeDefined()
-      expect(String(marketing?.productUrl).toLowerCase()).toContain('breadcrumb.cash')
-
-      // 4. ctaStyle - explicitly stated as "subtle"
-      console.log(`ctaStyle: "${marketing?.ctaStyle}" (expected: "subtle")`)
-      expect(marketing?.ctaStyle).toBe('subtle')
-
-      // 5. preferredLanguages - explicitly stated as "English" (should map to ["en"])
+      // 3. preferredLanguages - explicitly stated as "English" (should map to ["en"])
       console.log(`preferredLanguages: ${JSON.stringify(marketing?.preferredLanguages)} (expected: ["en"])`)
       expect(marketing?.preferredLanguages).toBeDefined()
       const languages = marketing?.preferredLanguages as string[]
       expect(Array.isArray(languages)).toBe(true)
       expect(languages).toContain('en')
 
-      // 6. discoveryInstructions - explicitly stated as "BNB chain and base communities..."
+      // 4. discoveryInstructions - explicitly stated as "BNB chain and base communities..."
       console.log(`discoveryInstructions: "${marketing?.discoveryInstructions}" (expected to contain "BNB" or "base")`)
       expect(marketing?.discoveryInstructions).toBeDefined()
       const discoveryInstr = String(marketing?.discoveryInstructions).toLowerCase()
       expect(discoveryInstr.includes('bnb') || discoveryInstr.includes('base')).toBe(true)
 
-      // 7. replyContext - explicitly stated as "witty, fun, but not too mocking"
-      // CRITICAL: This should NOT be confused with the "tone" field!
+      // 5. replyContext - explicitly stated as "witty, fun, but not too mocking"
       console.log(`replyContext: "${marketing?.replyContext}" (expected to contain "witty" or "fun")`)
       expect(marketing?.replyContext).toBeDefined()
       const replyCtx = String(marketing?.replyContext).toLowerCase()
       expect(replyCtx.includes('witty') || replyCtx.includes('fun') || replyCtx.includes('mocking')).toBe(true)
 
-      // 8. imageEvalInstructions - explicitly stated as "No images, please"
+      // 6. imageEvalInstructions - explicitly stated as "No images, please"
       console.log(`imageEvalInstructions: "${marketing?.imageEvalInstructions}" (expected to contain "no images")`)
       expect(marketing?.imageEvalInstructions).toBeDefined()
       expect(String(marketing?.imageEvalInstructions).toLowerCase()).toContain('no')
@@ -327,8 +309,6 @@ describe('AI Form Filler - Schema Validation', () => {
       const expectedFields = [
         'productName',
         'productDescription',
-        'productUrl',
-        'ctaStyle',
         'preferredLanguages',
         'discoveryInstructions',
         'replyContext',
