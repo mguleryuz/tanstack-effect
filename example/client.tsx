@@ -25,7 +25,7 @@ export default function Page() {
     }
   )
 
-  const form = useSchemaForm<typeof UserSchema.Type>({
+  const form = useSchemaForm({
     schema: UserSchema,
     initialData: user.data,
   })

@@ -21,6 +21,7 @@
  */
 
 import type { FormFieldDefinition } from '../schema-form'
+import type { AIFormRule } from './types'
 
 /**
  * @description Format a field with proper indentation for nested structure
@@ -131,14 +132,30 @@ KEY RULES:
  */
 export function buildUserPrompt(
   userPrompt: string,
-  schemaDescription: string
+  schemaDescription: string,
+  rules?: AIFormRule[]
 ): string {
   return buildUnifiedPrompt({
     userPrompt,
     schemaDescription,
     currentData: {},
     history: [],
+    rules,
   })
+}
+
+/**
+ * @description Build field-specific rules section for the prompt
+ */
+function buildRulesSection(rules: AIFormRule[]): string {
+  if (!rules || rules.length === 0) return ''
+
+  const rulesLines = rules.map((r) => `- "${r.field}": ${r.rule}`)
+
+  return `
+FIELD-SPECIFIC RULES:
+${rulesLines.join('\n')}
+`
 }
 
 /**
@@ -150,14 +167,17 @@ export function buildUnifiedPrompt(params: {
   schemaDescription: string
   currentData: Record<string, unknown>
   history: Array<{ role: 'user' | 'assistant'; content: string }>
+  rules?: AIFormRule[]
 }): string {
-  const { userPrompt, schemaDescription, currentData } = params
+  const { userPrompt, schemaDescription, currentData, rules } = params
+
+  const rulesSection = buildRulesSection(rules || [])
 
   const prompt = `Extract form data from the user's input.
 
 SCHEMA (fields to fill):
 ${schemaDescription}
-
+${rulesSection}
 CURRENT DATA (preserve these values):
 ${JSON.stringify(currentData, null, 2)}
 
@@ -179,6 +199,7 @@ Field matching guide:
 Language ISO codes: en=English, zh=Chinese, es=Spanish, fr=French, de=German, ja=Japanese, ko=Korean
 
 IMPORTANT: Extract ALL fields mentioned. Do not skip any. Do not invent values.
+${rules && rules.length > 0 ? 'Follow the FIELD-SPECIFIC RULES when filling those fields.' : ''}
 
 Return merged JSON with current data + extracted values.`
 

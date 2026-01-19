@@ -8,6 +8,7 @@ import type {
   AIFormFillerRequest,
   AIFormFillerResponse,
   AIFormMessage,
+  AIFormRule,
   ClarificationQuestion,
 } from '../ai/types'
 import type { FormFieldDefinition } from '../schema-form'
@@ -51,6 +52,12 @@ export interface UseAIFormFillerOptions<T> {
    * These fields will not be sent to the AI and will not be filled by it
    */
   excludeFields?: string[]
+  /**
+   * @description Custom rules/context for specific fields
+   * Allows schema owners to provide additional guidance to the AI
+   * @example [{ field: "marketing.discoveryQuery", rule: "Use Twitter search syntax..." }]
+   */
+  rules?: AIFormRule[]
 }
 
 export type AIFormFillerStatus =
@@ -98,6 +105,7 @@ export function useAIFormFiller<T>({
   onComplete,
   onDataChange,
   excludeFields = [],
+  rules = [],
 }: UseAIFormFillerOptions<T>): UseAIFormFillerReturn<T> {
   const [status, setStatus] = React.useState<AIFormFillerStatus>('idle')
   const [data, setData] = React.useState<Partial<T> | null>(initialData || null)
@@ -169,6 +177,7 @@ export function useAIFormFiller<T>({
           fields,
           messages: [], // Empty - we use currentData instead
           partialData: currentData || (data as Record<string, unknown>) || {},
+          rules: rules.length > 0 ? rules : undefined,
         }
 
         const response = await fetch(endpoint, {
@@ -193,7 +202,7 @@ export function useAIFormFiller<T>({
         throw errorObj
       }
     },
-    [endpoint, fields, data]
+    [endpoint, fields, data, rules]
   )
 
   /**

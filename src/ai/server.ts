@@ -225,12 +225,13 @@ export async function fillFormWithAI(
       .filter((m) => m.role !== 'system')
       .slice(-10) as Array<{ role: 'user' | 'assistant'; content: string }>
 
-    // Simple unified prompt: always include schema + currentData + history
+    // Simple unified prompt: always include schema + currentData + history + rules
     const userMessage = buildUnifiedPrompt({
       userPrompt: request.prompt,
       schemaDescription,
       currentData,
       history,
+      rules: request.rules,
     })
 
     const fullUserMessage = userMessage

@@ -3,7 +3,12 @@
 import { Schema } from 'effect'
 import * as React from 'react'
 
-import type { AIFormMessage, ClarificationQuestion } from '../ai/types'
+import type {
+  AIFormMessage,
+  AIFormRule,
+  ClarificationQuestion,
+  Paths,
+} from '../ai/types'
 import { stringToNumber, toAmountString } from '../format'
 import type { FormFieldDefinition } from '../schema-form'
 import {
@@ -19,19 +24,21 @@ import { useAIFormFiller } from './use-ai-form-filler'
  * Returns undefined when AI config is not provided
  */
 function useAIFormFillerConditional<T>(
-  config: SchemaFormAIConfig | undefined,
-  schema: Schema.Schema<T>,
+  config: SchemaFormAIConfig<T> | undefined,
+  schema: Schema.Schema.Any,
   data: T | null,
   onComplete: (filledData: Partial<T>) => void,
   onDataChange: (filledData: Partial<T>) => void
 ): SchemaFormAI | undefined {
   // Always call the hook but with a dummy endpoint when disabled
+  // Cast schema to Schema.Schema<T> for internal use (the actual type is inferred correctly)
   const result = useAIFormFiller({
     endpoint: config?.endpoint ?? '__disabled__',
-    schema,
+    schema: schema as Schema.Schema<T>,
     initialData: data,
     maxHistory: config?.maxHistory,
     excludeFields: config?.excludeFields,
+    rules: config?.rules,
     onComplete,
     onDataChange,
   })
@@ -54,12 +61,13 @@ function useAIFormFillerConditional<T>(
 }
 
 // Re-export types
-export type { FormFieldDefinition }
+export type { FormFieldDefinition, AIFormRule, Paths }
 
 /**
  * @description Optional AI configuration for useSchemaForm
+ * @template T - The schema type, used for strongly-typed field paths in rules
  */
-export interface SchemaFormAIConfig {
+export interface SchemaFormAIConfig<T = unknown> {
   /**
    * @description API endpoint for AI form filler
    * @example '/api/ai-form-fill'
@@ -75,6 +83,13 @@ export interface SchemaFormAIConfig {
    * These fields will not be sent to the AI and will not be filled by it
    */
   excludeFields?: string[]
+  /**
+   * @description Custom rules/context for specific fields
+   * Allows schema owners to provide additional guidance to the AI
+   * Field names are strongly typed based on the schema
+   * @example [{ field: "marketing.discoveryQuery", rule: "Use Twitter search syntax..." }]
+   */
+  rules?: AIFormRule<T>[]
 }
 
 /**
@@ -91,14 +106,22 @@ export interface SchemaFormAI {
   reset: () => void
 }
 
-export interface UseSchemaFormOptions<T> {
-  schema: Schema.Schema<T>
+/**
+ * @description Options for useSchemaForm hook
+ * @template S - The Effect Schema type (accepts any Schema including those with different Encoded/Type)
+ */
+export interface UseSchemaFormOptions<
+  S extends Schema.Schema.Any,
+  T = Schema.Schema.Type<S>,
+> {
+  schema: S
   initialData?: T | null
   onValidationChange?: (errors: Record<string, string>) => void
   /**
    * @description Optional AI configuration. When provided, enables AI form filling.
+   * Field names in rules are strongly typed based on the schema type
    */
-  ai?: SchemaFormAIConfig
+  ai?: SchemaFormAIConfig<T>
 }
 
 export interface UseSchemaFormReturn<T> {
@@ -148,17 +171,28 @@ export interface NestedFormProps<T = any> {
   minimal?: boolean
 }
 
-export function useSchemaForm<T>({
+export function useSchemaForm<
+  S extends Schema.Schema.Any,
+  T = Schema.Schema.Type<S>,
+>({
   schema,
   initialData = null,
   onValidationChange,
   ai: aiConfig,
-}: UseSchemaFormOptions<T>): UseSchemaFormReturn<T> {
+}: UseSchemaFormOptions<S, T>): UseSchemaFormReturn<T> {
   const [data, setDataState] = React.useState<T | null>(initialData)
   const [validationErrors, setValidationErrors] = React.useState<
     Record<string, string>
   >({})
   const [hasChanges, setHasChanges] = React.useState(false)
+
+  // Sync form state when initialData changes (e.g., when async query completes)
+  // Only sync if user hasn't made changes yet to avoid overwriting their edits
+  React.useEffect(() => {
+    if (!hasChanges && initialData !== null && initialData !== undefined) {
+      setDataState(initialData)
+    }
+  }, [initialData, hasChanges])
 
   const fields = React.useMemo(() => {
     return generateFormFieldsWithSchemaAnnotations(data ?? {}, schema)
@@ -270,7 +304,10 @@ export function useSchemaForm<T>({
       }
 
       try {
-        Schema.decodeUnknownSync(schema)(targetData)
+        // Cast to Schema<T> for decoding - the actual type is already inferred correctly
+        Schema.decodeUnknownSync(schema as unknown as Schema.Schema<T>)(
+          targetData
+        )
         setValidationErrors({})
         onValidationChange?.({})
         return true
