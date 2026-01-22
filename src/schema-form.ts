@@ -5,6 +5,7 @@ export interface FormFieldDefinition {
   type: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'literal'
   description?: string
   required?: boolean
+  order?: number
   min?: number
   max?: number
   step?: number
@@ -457,16 +458,21 @@ function findDescriptionInAst(ast: any, depth = 0): string | undefined {
   return undefined
 }
 
-// Extract descriptions and titles from Effect Schema annotations using proper AST traversal
+// Extract descriptions, titles, and property order from Effect Schema annotations
 function extractSchemaAnnotations(
   schema: any,
   path = ''
-): { descriptions: Record<string, string>; titles: Record<string, string> } {
+): {
+  descriptions: Record<string, string>
+  titles: Record<string, string>
+  orders: Record<string, number>
+} {
   const descriptions: Record<string, string> = {}
   const titles: Record<string, string> = {}
+  const orders: Record<string, number> = {}
 
   try {
-    if (!schema) return { descriptions, titles }
+    if (!schema) return { descriptions, titles, orders }
 
     // Try to access the AST directly
     const ast = schema.ast || schema
@@ -488,7 +494,8 @@ function extractSchemaAnnotations(
       const transformed = extractSchemaAnnotations(ast.from, path)
       Object.assign(descriptions, transformed.descriptions)
       Object.assign(titles, transformed.titles)
-      return { descriptions, titles }
+      Object.assign(orders, transformed.orders)
+      return { descriptions, titles, orders }
     }
 
     // Handle Refinement types (from .pipe(Schema.filter())) at the top level first
@@ -508,7 +515,8 @@ function extractSchemaAnnotations(
       const refined = extractSchemaAnnotations(ast.from, path)
       Object.assign(descriptions, refined.descriptions)
       Object.assign(titles, refined.titles)
-      return { descriptions, titles }
+      Object.assign(orders, refined.orders)
+      return { descriptions, titles, orders }
     }
 
     // Get annotations from the current level
@@ -526,13 +534,16 @@ function extractSchemaAnnotations(
 
     // Handle TypeLiteral (Struct) types
     if (ast._tag === 'TypeLiteral' && Array.isArray(ast.propertySignatures)) {
-      ast.propertySignatures.forEach((propSig: any) => {
+      ast.propertySignatures.forEach((propSig: any, index: number) => {
         if (!propSig || !propSig.name) return
 
         // Use the name property (from the console log we can see it has .name)
         const keyName = propSig.name
 
         const fullPath = path ? `${path}.${keyName}` : keyName
+
+        // Capture declaration order from schema
+        orders[fullPath] = index
 
         // Extract description from property signature annotations (highest priority)
         const propSigDesc = extractDescriptionFromAst(propSig)
@@ -637,6 +648,7 @@ function extractSchemaAnnotations(
           const nested = extractSchemaAnnotations(propSig.type, fullPath)
           Object.assign(descriptions, nested.descriptions)
           Object.assign(titles, nested.titles)
+          Object.assign(orders, nested.orders)
         }
 
         // Handle arrays (TupleType with rest elements)
@@ -723,6 +735,7 @@ function extractSchemaAnnotations(
         const unionResult = extractSchemaAnnotations(nonUndefinedTypes[0], path)
         Object.assign(descriptions, unionResult.descriptions)
         Object.assign(titles, unionResult.titles)
+        Object.assign(orders, unionResult.orders)
       }
     }
 
@@ -743,6 +756,7 @@ function extractSchemaAnnotations(
       const refinedResult = extractSchemaAnnotations(ast.from, path)
       Object.assign(descriptions, refinedResult.descriptions)
       Object.assign(titles, refinedResult.titles)
+      Object.assign(orders, refinedResult.orders)
     }
 
     // Handle Transformation types (common in Effect Schema)
@@ -762,27 +776,28 @@ function extractSchemaAnnotations(
       const transformedResult = extractSchemaAnnotations(ast.to, path)
       Object.assign(descriptions, transformedResult.descriptions)
       Object.assign(titles, transformedResult.titles)
+      Object.assign(orders, transformedResult.orders)
     }
   } catch {
     // Silently handle errors in annotation extraction
   }
 
-  return { descriptions, titles }
+  return { descriptions, titles, orders }
 }
 
-// Generate fields with descriptions and titles from schema annotations
+// Generate fields with annotations (descriptions, titles, order) from schema
 export function generateFormFieldsWithSchemaAnnotations(
   data: any,
   schema: any
 ): Record<string, FormFieldDefinition> {
   const fields = generateFormFieldsFromData(data)
-  const { descriptions, titles } = extractSchemaAnnotations(schema)
+  const { descriptions, titles, orders } = extractSchemaAnnotations(schema)
 
   // Also generate fields from schema for missing data
   const schemaFields = generateFormFieldsFromSchema(schema)
   mergeSchemaFields(fields, schemaFields)
 
-  // Recursively assign descriptions and titles to all fields including nested ones
+  // Recursively assign annotations to all fields including nested ones
   function assignAnnotationsRecursively(
     fieldObj: Record<string, FormFieldDefinition>
   ) {
@@ -790,7 +805,6 @@ export function generateFormFieldsWithSchemaAnnotations(
       const field = fieldObj[key]
 
       // field.key is already the full path (e.g., "options.maxCandidatesPerRun")
-      // So we use it directly for lookup
       if (descriptions[field.key]) {
         field.description = descriptions[field.key]
       }
@@ -800,11 +814,15 @@ export function generateFormFieldsWithSchemaAnnotations(
         field.label = titles[field.key]
       }
 
+      // Assign declaration order from schema
+      if (orders[field.key] !== undefined) {
+        field.order = orders[field.key]
+      }
+
       // Handle array element annotations (stored as field[] in maps)
       if (field.type === 'array' && field.children) {
         Object.keys(field.children).forEach((childKey) => {
           const childField = field.children![childKey]
-          // For array children, construct path like "field.key[].childKey"
           const arrayElementKey = `${field.key}[]${childKey.startsWith('.') ? '' : '.'}${childKey}`
           if (descriptions[arrayElementKey]) {
             childField.description = descriptions[arrayElementKey]
@@ -812,12 +830,21 @@ export function generateFormFieldsWithSchemaAnnotations(
           if (titles[arrayElementKey]) {
             childField.label = titles[arrayElementKey]
           }
+          if (orders[arrayElementKey] !== undefined) {
+            childField.order = orders[arrayElementKey]
+          }
           // Also try direct lookup with childKey if it's a full path
           if (!childField.description && descriptions[childKey]) {
             childField.description = descriptions[childKey]
           }
           if (!childField.label && titles[childKey]) {
             childField.label = titles[childKey]
+          }
+          if (
+            childField.order === undefined &&
+            orders[childKey] !== undefined
+          ) {
+            childField.order = orders[childKey]
           }
         })
       }
