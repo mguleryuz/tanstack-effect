@@ -332,6 +332,78 @@ function extractDescriptionFromAst(ast: any): string | undefined {
   return undefined
 }
 
+function extractTitleFromAst(ast: any): string | undefined {
+  if (!ast) return undefined
+
+  const checkAnnotationsObject = (annotations: any): string | undefined => {
+    if (!annotations) return undefined
+    for (const symbol of Object.getOwnPropertySymbols(annotations)) {
+      if (symbol.description === 'effect/annotation/Title') {
+        const title = annotations[symbol]
+        if (title) return title
+      }
+    }
+    return undefined
+  }
+
+  if (ast.annotations) {
+    const title = checkAnnotationsObject(ast.annotations)
+    if (title) return title
+  }
+
+  if (ast._tag === 'Transformation' && ast.to && ast.to.annotations) {
+    const title = checkAnnotationsObject(ast.to.annotations)
+    if (title) return title
+  }
+
+  return undefined
+}
+
+function findTitleInAst(ast: any, depth = 0): string | undefined {
+  if (!ast || depth > 10) return undefined
+
+  const title = extractTitleFromAst(ast)
+  if (title) return title
+
+  if (ast._tag === 'Transformation') {
+    if (ast.from) {
+      const fromTitle = findTitleInAst(ast.from, depth + 1)
+      if (fromTitle) return fromTitle
+    }
+    if (ast.to) {
+      const toTitle = findTitleInAst(ast.to, depth + 1)
+      if (toTitle) return toTitle
+    }
+  }
+
+  if (ast._tag === 'Refinement' && ast.from) {
+    const fromTitle = findTitleInAst(ast.from, depth + 1)
+    if (fromTitle) return fromTitle
+  }
+
+  if (ast._tag === 'Union' && Array.isArray(ast.types)) {
+    const nonUndefinedTypes = ast.types.filter(
+      (t: any) => t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+    )
+    for (const type of nonUndefinedTypes) {
+      const typeTitle = findTitleInAst(type, depth + 1)
+      if (typeTitle) return typeTitle
+    }
+  }
+
+  if (ast._tag === 'Suspend' && typeof ast.f === 'function') {
+    try {
+      const innerAst = ast.f()
+      const innerTitle = findTitleInAst(innerAst, depth + 1)
+      if (innerTitle) return innerTitle
+    } catch {
+      // ignore
+    }
+  }
+
+  return undefined
+}
+
 // Recursively search for description in an AST node and its wrappers
 function findDescriptionInAst(ast: any, depth = 0): string | undefined {
   if (!ast || depth > 10) return undefined // Prevent infinite recursion
@@ -385,15 +457,16 @@ function findDescriptionInAst(ast: any, depth = 0): string | undefined {
   return undefined
 }
 
-// Extract descriptions from Effect Schema annotations using proper AST traversal
+// Extract descriptions and titles from Effect Schema annotations using proper AST traversal
 function extractSchemaAnnotations(
   schema: any,
   path = ''
-): Record<string, string> {
+): { descriptions: Record<string, string>; titles: Record<string, string> } {
   const descriptions: Record<string, string> = {}
+  const titles: Record<string, string> = {}
 
   try {
-    if (!schema) return descriptions
+    if (!schema) return { descriptions, titles }
 
     // Try to access the AST directly
     const ast = schema.ast || schema
@@ -406,12 +479,16 @@ function extractSchemaAnnotations(
           if (symbol.description === 'effect/annotation/Description' && path) {
             descriptions[path] = ast.annotations[symbol]
           }
+          if (symbol.description === 'effect/annotation/Title' && path) {
+            titles[path] = ast.annotations[symbol]
+          }
         })
       }
       // Then recursively extract from the 'from' field
-      const transformedDescriptions = extractSchemaAnnotations(ast.from, path)
-      Object.assign(descriptions, transformedDescriptions)
-      return descriptions
+      const transformed = extractSchemaAnnotations(ast.from, path)
+      Object.assign(descriptions, transformed.descriptions)
+      Object.assign(titles, transformed.titles)
+      return { descriptions, titles }
     }
 
     // Handle Refinement types (from .pipe(Schema.filter())) at the top level first
@@ -422,12 +499,16 @@ function extractSchemaAnnotations(
           if (symbol.description === 'effect/annotation/Description' && path) {
             descriptions[path] = ast.annotations[symbol]
           }
+          if (symbol.description === 'effect/annotation/Title' && path) {
+            titles[path] = ast.annotations[symbol]
+          }
         })
       }
       // Then recursively extract from the 'from' field
-      const refinedDescriptions = extractSchemaAnnotations(ast.from, path)
-      Object.assign(descriptions, refinedDescriptions)
-      return descriptions
+      const refined = extractSchemaAnnotations(ast.from, path)
+      Object.assign(descriptions, refined.descriptions)
+      Object.assign(titles, refined.titles)
+      return { descriptions, titles }
     }
 
     // Get annotations from the current level
@@ -436,6 +517,9 @@ function extractSchemaAnnotations(
       Object.getOwnPropertySymbols(ast.annotations).forEach((symbol) => {
         if (symbol.description === 'effect/annotation/Description' && path) {
           descriptions[path] = ast.annotations[symbol]
+        }
+        if (symbol.description === 'effect/annotation/Title' && path) {
+          titles[path] = ast.annotations[symbol]
         }
       })
     }
@@ -456,12 +540,26 @@ function extractSchemaAnnotations(
           descriptions[fullPath] = propSigDesc
         }
 
+        // Extract title from property signature annotations
+        const propSigTitle = extractTitleFromAst(propSig)
+        if (propSigTitle) {
+          titles[fullPath] = propSigTitle
+        }
+
         // If no description from property signature, check the type
         if (!descriptions[fullPath] && propSig.type) {
           // Use the recursive helper to find description in any wrapper type
           const typeDesc = findDescriptionInAst(propSig.type)
           if (typeDesc) {
             descriptions[fullPath] = typeDesc
+          }
+        }
+
+        // If no title from property signature, check the type
+        if (!titles[fullPath] && propSig.type) {
+          const typeTitle = findTitleInAst(propSig.type)
+          if (typeTitle) {
+            titles[fullPath] = typeTitle
           }
         }
 
@@ -480,6 +578,25 @@ function extractSchemaAnnotations(
             const wrappedDesc = findDescriptionInAst(nonUndefinedTypes[0])
             if (wrappedDesc) {
               descriptions[fullPath] = wrappedDesc
+            }
+          }
+        }
+
+        // For optional fields, also check for title
+        if (
+          !titles[fullPath] &&
+          propSig.type &&
+          propSig.type._tag === 'Union' &&
+          Array.isArray(propSig.type.types)
+        ) {
+          const nonUndefinedTypes = propSig.type.types.filter(
+            (t: any) =>
+              t._tag !== 'UndefinedKeyword' && t._tag !== 'VoidKeyword'
+          )
+          if (nonUndefinedTypes.length === 1) {
+            const wrappedTitle = findTitleInAst(nonUndefinedTypes[0])
+            if (wrappedTitle) {
+              titles[fullPath] = wrappedTitle
             }
           }
         }
@@ -517,11 +634,9 @@ function extractSchemaAnnotations(
         if (actualNestedType && actualNestedType._tag === 'TypeLiteral') {
           // Pass the original propSig.type to preserve annotations context
           // The extractSchemaAnnotations function will unwrap to TypeLiteral internally
-          const nestedDescriptions = extractSchemaAnnotations(
-            propSig.type,
-            fullPath
-          )
-          Object.assign(descriptions, nestedDescriptions)
+          const nested = extractSchemaAnnotations(propSig.type, fullPath)
+          Object.assign(descriptions, nested.descriptions)
+          Object.assign(titles, nested.titles)
         }
 
         // Handle arrays (TupleType with rest elements)
@@ -550,7 +665,7 @@ function extractSchemaAnnotations(
           actualArrayType.rest &&
           actualArrayType.rest.length > 0
         ) {
-          // Extract description for the array itself
+          // Extract description and title for the array itself
           if (actualArrayType.annotations) {
             Object.getOwnPropertySymbols(actualArrayType.annotations).forEach(
               (symbol) => {
@@ -560,6 +675,12 @@ function extractSchemaAnnotations(
                     descriptions[fullPath] = description
                   }
                 }
+                if (symbol.description === 'effect/annotation/Title') {
+                  const title = actualArrayType.annotations[symbol]
+                  if (title) {
+                    titles[fullPath] = title
+                  }
+                }
               }
             )
           }
@@ -567,11 +688,12 @@ function extractSchemaAnnotations(
           // Process the array element type
           const elementType = actualArrayType.rest[0]?.type
           if (elementType && elementType._tag === 'TypeLiteral') {
-            const nestedDescriptions = extractSchemaAnnotations(
+            const nested = extractSchemaAnnotations(
               elementType,
               `${fullPath}[]`
             )
-            Object.assign(descriptions, nestedDescriptions)
+            Object.assign(descriptions, nested.descriptions)
+            Object.assign(titles, nested.titles)
           }
         }
       })
@@ -585,6 +707,9 @@ function extractSchemaAnnotations(
           if (symbol.description === 'effect/annotation/Description' && path) {
             descriptions[path] = ast.annotations[symbol]
           }
+          if (symbol.description === 'effect/annotation/Title' && path) {
+            titles[path] = ast.annotations[symbol]
+          }
         })
       }
 
@@ -595,11 +720,9 @@ function extractSchemaAnnotations(
 
       // If there's only one non-undefined type, recursively extract from it
       if (nonUndefinedTypes.length === 1) {
-        const unionDescriptions = extractSchemaAnnotations(
-          nonUndefinedTypes[0],
-          path
-        )
-        Object.assign(descriptions, unionDescriptions)
+        const unionResult = extractSchemaAnnotations(nonUndefinedTypes[0], path)
+        Object.assign(descriptions, unionResult.descriptions)
+        Object.assign(titles, unionResult.titles)
       }
     }
 
@@ -611,11 +734,15 @@ function extractSchemaAnnotations(
           if (symbol.description === 'effect/annotation/Description' && path) {
             descriptions[path] = ast.annotations[symbol]
           }
+          if (symbol.description === 'effect/annotation/Title' && path) {
+            titles[path] = ast.annotations[symbol]
+          }
         })
       }
       // Then recursively extract from the 'from' field
-      const refinedDescriptions = extractSchemaAnnotations(ast.from, path)
-      Object.assign(descriptions, refinedDescriptions)
+      const refinedResult = extractSchemaAnnotations(ast.from, path)
+      Object.assign(descriptions, refinedResult.descriptions)
+      Object.assign(titles, refinedResult.titles)
     }
 
     // Handle Transformation types (common in Effect Schema)
@@ -626,45 +753,54 @@ function extractSchemaAnnotations(
           if (symbol.description === 'effect/annotation/Description' && path) {
             descriptions[path] = ast.annotations[symbol]
           }
+          if (symbol.description === 'effect/annotation/Title' && path) {
+            titles[path] = ast.annotations[symbol]
+          }
         })
       }
       // Then recursively extract from the 'to' field
-      const transformedDescriptions = extractSchemaAnnotations(ast.to, path)
-      Object.assign(descriptions, transformedDescriptions)
+      const transformedResult = extractSchemaAnnotations(ast.to, path)
+      Object.assign(descriptions, transformedResult.descriptions)
+      Object.assign(titles, transformedResult.titles)
     }
   } catch {
     // Silently handle errors in annotation extraction
   }
 
-  return descriptions
+  return { descriptions, titles }
 }
 
-// Generate fields with descriptions from schema annotations
+// Generate fields with descriptions and titles from schema annotations
 export function generateFormFieldsWithSchemaAnnotations(
   data: any,
   schema: any
 ): Record<string, FormFieldDefinition> {
   const fields = generateFormFieldsFromData(data)
-  const descriptions = extractSchemaAnnotations(schema)
+  const { descriptions, titles } = extractSchemaAnnotations(schema)
 
   // Also generate fields from schema for missing data
   const schemaFields = generateFormFieldsFromSchema(schema)
   mergeSchemaFields(fields, schemaFields)
 
-  // Recursively assign descriptions to all fields including nested ones
-  function assignDescriptionsRecursively(
+  // Recursively assign descriptions and titles to all fields including nested ones
+  function assignAnnotationsRecursively(
     fieldObj: Record<string, FormFieldDefinition>
   ) {
     Object.keys(fieldObj).forEach((key) => {
       const field = fieldObj[key]
 
       // field.key is already the full path (e.g., "options.maxCandidatesPerRun")
-      // So we use it directly for description lookup
+      // So we use it directly for lookup
       if (descriptions[field.key]) {
         field.description = descriptions[field.key]
       }
 
-      // Handle array element descriptions (stored as field[] in descriptions)
+      // Use title as label, falling back to the existing formatLabel(key)
+      if (titles[field.key]) {
+        field.label = titles[field.key]
+      }
+
+      // Handle array element annotations (stored as field[] in maps)
       if (field.type === 'array' && field.children) {
         Object.keys(field.children).forEach((childKey) => {
           const childField = field.children![childKey]
@@ -673,21 +809,27 @@ export function generateFormFieldsWithSchemaAnnotations(
           if (descriptions[arrayElementKey]) {
             childField.description = descriptions[arrayElementKey]
           }
+          if (titles[arrayElementKey]) {
+            childField.label = titles[arrayElementKey]
+          }
           // Also try direct lookup with childKey if it's a full path
           if (!childField.description && descriptions[childKey]) {
             childField.description = descriptions[childKey]
+          }
+          if (!childField.label && titles[childKey]) {
+            childField.label = titles[childKey]
           }
         })
       }
 
       // Recursively assign to children
       if (field.children) {
-        assignDescriptionsRecursively(field.children)
+        assignAnnotationsRecursively(field.children)
       }
     })
   }
 
-  assignDescriptionsRecursively(fields)
+  assignAnnotationsRecursively(fields)
   return fields
 }
 
