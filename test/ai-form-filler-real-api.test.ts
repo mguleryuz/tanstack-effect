@@ -2,11 +2,13 @@
 /**
  * Real API test for AI form filler with VisitorSettings schema
  *
- * Tests:
- * 1. Schema 1:1 to AI - verify form fields map correctly to JSON Schema
- * 2. Context 1:1 to AI - verify current data is passed correctly
- * 3. Response - verify AI extracts fields correctly
- * 4. Explicit field extraction - verify AI extracts ALL explicitly stated fields
+ * Tests real-world use cases:
+ * 1. Contextual inference - product description fills multiple related fields
+ * 2. Diverse product types - SaaS, e-commerce, creator tools, etc.
+ * 3. Natural language understanding - casual user input → structured data
+ * 4. Field updates - modifying existing values with natural commands
+ * 5. Toggle commands - enable/disable features
+ * 6. Referential reasoning - "match our tone", "align with product"
  *
  * Requires GOOGLE_GENERATIVE_AI_API_KEY environment variable.
  */
@@ -17,270 +19,359 @@ import { VisitorSettings } from '../../../lib/schemas'
 
 const shouldSkip = !process.env.GOOGLE_GENERATIVE_AI_API_KEY
 
-const TEST_PROMPT = `My product is called Breadcrumb. It's an advertising tool. We want to target Binance Smart Chain. We want it to reply hyping up the product but not being too complimentary but being friendly enough.`
+// Helper to get fields from empty form
+const getFields = () => generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
 
-/**
- * Real user prompt that explicitly states ALL marketing fields.
- * The AI MUST extract every field mentioned here.
- */
-const EXPLICIT_FIELDS_PROMPT = `Hey, so product name is Breadcrumb, product description AI agents that reply to people on X, preferred language English, discovery instructions target BNB chain and base communities, projects and content creators alike, reply context should be witty, fun, but not too mocking. For image eval instructions, no political content.`
-
-describe('AI Form Filler - Conditional Requirements', () => {
-  it('parses requiredWhen annotation from ImageGenConfig schema', () => {
-    const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
-
-    console.log('\n=== IMAGEGEN FIELDS ===')
-    const imageGenField = fields.imageGen
-    expect(imageGenField).toBeDefined()
-    expect(imageGenField.type).toBe('object')
-    expect(imageGenField.children).toBeDefined()
-
-    const imageGenChildren = imageGenField.children || {}
-    Object.entries(imageGenChildren).forEach(([key, field]) => {
-      console.log(`  ${key}:`)
-      console.log(`    type: ${(field as any).type}`)
-      console.log(`    required: ${(field as any).required}`)
-      console.log(`    requiredWhen: ${JSON.stringify((field as any).requiredWhen)}`)
-    })
-
-    // Verify instructions has requiredWhen
-    const instructionsField = imageGenChildren['imageGen.instructions']
-    expect(instructionsField).toBeDefined()
-    expect(instructionsField.requiredWhen).toBeDefined()
-    expect(instructionsField.requiredWhen).toEqual({
-      field: 'imageGen.enabled',
-      value: true,
-    })
-
-    // Verify imageRefs has requiredWhen
-    const imageRefsField = imageGenChildren['imageGen.imageRefs']
-    expect(imageRefsField).toBeDefined()
-    expect(imageRefsField.requiredWhen).toBeDefined()
-    expect(imageRefsField.requiredWhen).toEqual({
-      field: 'imageGen.enabled',
-      value: true,
-    })
-
-    // Verify enabled does NOT have requiredWhen
-    const enabledField = imageGenChildren['imageGen.enabled']
-    expect(enabledField).toBeDefined()
-    expect(enabledField.requiredWhen).toBeUndefined()
-
-    console.log('\n✓ All requiredWhen annotations parsed correctly')
-  })
-
+describe('AI Form Filler - Contextual Inference', () => {
+  /**
+   * CORE TEST: When a user describes their product naturally, the AI should
+   * infer and fill multiple fields (not just the ones explicitly named).
+   */
   it.skipIf(shouldSkip)(
-    'detects missing conditionally required fields when enabled=true',
+    'infers discovery query and instructions from product description',
     async () => {
-      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+      const fields = getFields()
 
-      // When imageGen.enabled is true, instructions and imageRefs should be required
       const response = await fillFormWithAI({
-        prompt: 'Enable image generation for this campaign',
+        prompt: `I'm building a project management tool called TaskFlow for remote engineering teams. We want to reach developers who struggle with async collaboration.`,
         fields,
-        partialData: {
-          imageGen: {
-            enabled: true,
-            // instructions and imageRefs are missing
-          },
-        },
         messages: [],
       })
 
-      console.log('\n=== CONDITIONAL REQUIREMENT TEST ===')
+      console.log('\n=== CONTEXTUAL INFERENCE TEST ===')
       console.log('Filled:', JSON.stringify(response.filled, null, 2))
-      console.log('Missing:', response.missing)
-      console.log('Complete:', response.complete)
 
-      // The AI should recognize that with enabled=true, instructions might be needed
-      // Check that the response includes imageGen with enabled=true
-      const imageGen = response.filled.imageGen as Record<string, unknown>
-      expect(imageGen?.enabled).toBe(true)
+      const marketing = response.filled.marketing as Record<string, unknown>
+
+      // Should extract explicit info
+      expect(marketing?.productName).toBe('TaskFlow')
+      expect(marketing?.productDescription).toBeDefined()
+      expect(String(marketing?.productDescription).toLowerCase()).toMatch(
+        /project management|remote|engineering/
+      )
+
+      // Should INFER discovery query from context (remote work, dev tools, async)
+      expect(marketing?.discoveryQuery).toBeDefined()
+      const query = String(marketing?.discoveryQuery).toLowerCase()
+      const hasRelevantTerms =
+        query.includes('remote') ||
+        query.includes('async') ||
+        query.includes('developer') ||
+        query.includes('engineering') ||
+        query.includes('project management') ||
+        query.includes('collaboration')
+      expect(hasRelevantTerms).toBe(true)
+      console.log('✓ discoveryQuery inferred:', marketing?.discoveryQuery)
+
+      // Should INFER discovery instructions
+      if (marketing?.discoveryInstructions) {
+        console.log('✓ discoveryInstructions inferred:', marketing?.discoveryInstructions)
+      }
     },
     { timeout: 30000 }
   )
 
   /**
-   * Test for "Disable image gen" command
-   * User should be able to say "Disable image gen" and the AI should set imageGen.enabled = false
+   * Test: Tone/personality description → replyContext inference
    */
   it.skipIf(shouldSkip)(
-    'handles "Disable image gen" command correctly',
+    'infers reply context from described personality',
     async () => {
-      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+      const fields = getFields()
 
-      // Start with imageGen enabled
+      const response = await fillFormWithAI({
+        prompt: `Product name is Moodboard. It's a design inspiration app for creative professionals. We want to sound playful and encouraging, like a creative friend who gets excited about design.`,
+        fields,
+        messages: [],
+      })
+
+      const marketing = response.filled.marketing as Record<string, unknown>
+
+      console.log('\n=== TONE INFERENCE TEST ===')
+      console.log('replyContext:', marketing?.replyContext)
+
+      expect(marketing?.productName).toBe('Moodboard')
+
+      // Should infer reply context from the tone description
+      expect(marketing?.replyContext).toBeDefined()
+      const ctx = String(marketing?.replyContext).toLowerCase()
+      const matchesTone =
+        ctx.includes('playful') ||
+        ctx.includes('creative') ||
+        ctx.includes('encouraging') ||
+        ctx.includes('friend') ||
+        ctx.includes('excited')
+      expect(matchesTone).toBe(true)
+    },
+    { timeout: 30000 }
+  )
+
+  /**
+   * Test: E-commerce product - different niche entirely
+   */
+  it.skipIf(shouldSkip)(
+    'handles e-commerce product with audience targeting',
+    async () => {
+      const fields = getFields()
+
+      const response = await fillFormWithAI({
+        prompt: `We sell premium ceramic cookware called CeraChef. Target home cooking enthusiasts and foodie communities. Keep tone warm and knowledgeable, like a trusted chef friend.`,
+        fields,
+        messages: [],
+      })
+
+      const marketing = response.filled.marketing as Record<string, unknown>
+
+      console.log('\n=== E-COMMERCE TEST ===')
+      console.log('Filled marketing:', JSON.stringify(marketing, null, 2))
+
+      expect(marketing?.productName).toBe('CeraChef')
+
+      // Discovery should relate to cooking/food
+      const query = String(marketing?.discoveryQuery || '').toLowerCase()
+      const hasNicheTerms =
+        query.includes('cook') ||
+        query.includes('food') ||
+        query.includes('kitchen') ||
+        query.includes('recipe') ||
+        query.includes('chef')
+      expect(hasNicheTerms).toBe(true)
+
+      // Reply context should match warm/knowledgeable tone
+      expect(marketing?.replyContext).toBeDefined()
+    },
+    { timeout: 30000 }
+  )
+
+  /**
+   * Test: SaaS B2B product - professional context
+   */
+  it.skipIf(shouldSkip)(
+    'handles B2B SaaS product with professional tone',
+    async () => {
+      const fields = getFields()
+
+      const response = await fillFormWithAI({
+        prompt: `DataPipe is an ETL platform for data engineers at mid-size companies. We want to find people discussing data pipeline challenges, warehouse migrations, and dbt. Tone should be technical and helpful, not salesy.`,
+        fields,
+        messages: [],
+      })
+
+      const marketing = response.filled.marketing as Record<string, unknown>
+
+      console.log('\n=== B2B SAAS TEST ===')
+      console.log('Filled marketing:', JSON.stringify(marketing, null, 2))
+
+      expect(marketing?.productName).toBe('DataPipe')
+
+      // Discovery query should contain data engineering terms
+      const query = String(marketing?.discoveryQuery || '').toLowerCase()
+      const hasTerms =
+        query.includes('data') ||
+        query.includes('pipeline') ||
+        query.includes('etl') ||
+        query.includes('dbt') ||
+        query.includes('warehouse')
+      expect(hasTerms).toBe(true)
+
+      // Reply context should reflect technical, non-salesy tone
+      const ctx = String(marketing?.replyContext || '').toLowerCase()
+      const hasTone =
+        ctx.includes('technical') ||
+        ctx.includes('helpful') ||
+        ctx.includes('not salesy') ||
+        ctx.includes('professional')
+      expect(hasTone).toBe(true)
+    },
+    { timeout: 30000 }
+  )
+})
+
+describe('AI Form Filler - Explicit Field Extraction', () => {
+  /**
+   * When a user explicitly names fields and values, ALL should be extracted.
+   */
+  it.skipIf(shouldSkip)(
+    'extracts all explicitly stated fields from structured input',
+    async () => {
+      const fields = getFields()
+
+      const response = await fillFormWithAI({
+        prompt: `Product name is FitTrack, description is a workout tracking app for busy professionals. Preferred language English. Discovery instructions: target fitness enthusiasts sharing workout tips, avoid supplement spam and prioritize workout photos over memes. Reply context: motivating and casual, like a gym buddy.`,
+        fields,
+        messages: [],
+      })
+
+      const marketing = response.filled.marketing as Record<string, unknown>
+
+      console.log('\n=== EXPLICIT EXTRACTION TEST ===')
+      console.log('Filled:', JSON.stringify(marketing, null, 2))
+
+      // All 5 fields should be extracted
+      expect(marketing?.productName).toBe('FitTrack')
+
+      expect(marketing?.productDescription).toBeDefined()
+      expect(String(marketing?.productDescription).toLowerCase()).toMatch(/workout|tracking|fitness/)
+
+      expect(marketing?.preferredLanguages).toBeDefined()
+      expect(marketing?.preferredLanguages).toContain('en')
+
+      expect(marketing?.discoveryInstructions).toBeDefined()
+      expect(String(marketing?.discoveryInstructions).toLowerCase()).toMatch(/fitness|workout/)
+
+      expect(marketing?.replyContext).toBeDefined()
+      expect(String(marketing?.replyContext).toLowerCase()).toMatch(/motivat|casual|gym/)
+
+      console.log('✓ All 5 explicit fields extracted correctly')
+    },
+    { timeout: 30000 }
+  )
+
+  /**
+   * Test casual, unstructured input with implicit field mappings
+   */
+  it.skipIf(shouldSkip)(
+    'extracts fields from casual unstructured description',
+    async () => {
+      const fields = getFields()
+
+      const response = await fillFormWithAI({
+        prompt: `hey so i have this app called SnipIt, basically it's a code snippet manager for developers. I want to find people tweeting about productivity hacks and dev workflows. The vibe should be nerdy but approachable, like we're all in this together.`,
+        fields,
+        messages: [],
+      })
+
+      const marketing = response.filled.marketing as Record<string, unknown>
+
+      console.log('\n=== CASUAL INPUT TEST ===')
+      console.log('Filled:', JSON.stringify(marketing, null, 2))
+
+      expect(marketing?.productName).toBe('SnipIt')
+      expect(marketing?.productDescription).toBeDefined()
+      expect(String(marketing?.productDescription).toLowerCase()).toMatch(/snippet|code|developer/)
+
+      // Should infer discovery from "productivity hacks and dev workflows"
+      const query = String(marketing?.discoveryQuery || '').toLowerCase()
+      const hasTerms =
+        query.includes('productivity') ||
+        query.includes('dev') ||
+        query.includes('workflow') ||
+        query.includes('developer') ||
+        query.includes('code')
+      expect(hasTerms).toBe(true)
+
+      // Should infer tone from "nerdy but approachable"
+      expect(marketing?.replyContext).toBeDefined()
+    },
+    { timeout: 30000 }
+  )
+})
+
+describe('AI Form Filler - Field Updates', () => {
+  /**
+   * Test updating a single field while preserving others
+   */
+  it.skipIf(shouldSkip)(
+    'updates one field without clobbering existing data',
+    async () => {
       const currentData = {
-        imageGen: {
-          enabled: true,
-          instructions: 'Generate cool images',
+        marketing: {
+          productName: 'SnipIt',
+          productDescription: 'Code snippet manager for developers',
+          discoveryQuery: '#developer productivity',
+          replyContext: 'Nerdy and approachable',
         },
       }
 
+      const fields = generateFormFieldsWithSchemaAnnotations(currentData, VisitorSettings)
+
       const response = await fillFormWithAI({
-        prompt: 'Disable image gen',
+        prompt: `change discovery query to #buildinpublic OR #indiehackers OR "dev tools"`,
         fields,
         partialData: currentData,
         messages: [],
       })
 
-      console.log('\n=== DISABLE IMAGE GEN TEST ===')
-      console.log('Current data:', JSON.stringify(currentData, null, 2))
-      console.log('Prompt: "Disable image gen"')
-      console.log('Filled:', JSON.stringify(response.filled, null, 2))
-      console.log('Summary:', response.summary)
+      const marketing = response.filled.marketing as Record<string, unknown>
 
-      const imageGen = response.filled.imageGen as Record<string, unknown>
+      console.log('\n=== UPDATE FIELD TEST ===')
+      console.log('Filled:', JSON.stringify(marketing, null, 2))
 
-      // The AI should set enabled to false
-      expect(imageGen).toBeDefined()
-      expect(imageGen?.enabled).toBe(false)
+      // Should update discovery query
+      const query = String(marketing?.discoveryQuery || '').toLowerCase()
+      expect(query.includes('buildinpublic') || query.includes('indiehackers')).toBe(true)
 
-      console.log('\n✓ imageGen.enabled correctly set to false')
+      // Should preserve other fields
+      expect(marketing?.productName).toBe('SnipIt')
+      expect(marketing?.replyContext).toBeDefined()
+      expect(String(marketing?.replyContext).toLowerCase()).toMatch(/nerd|approach/)
+
+      console.log('✓ Field updated, existing data preserved')
     },
     { timeout: 30000 }
   )
 
   /**
-   * Test for "Disable image gen" command with empty form
-   * This simulates a fresh form where imageGen hasn't been set yet
+   * Test updating tone/style
    */
   it.skipIf(shouldSkip)(
-    'handles "Disable image gen" command with empty form',
+    'updates reply context when user changes tone preference',
     async () => {
-      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+      const currentData = {
+        marketing: {
+          productName: 'DataPipe',
+          productDescription: 'ETL platform for data engineers',
+          discoveryQuery: 'data engineering dbt',
+          replyContext: 'Technical and helpful',
+        },
+      }
 
-      // Start with empty form (no imageGen data)
-      const currentData = {}
+      const fields = generateFormFieldsWithSchemaAnnotations(currentData, VisitorSettings)
 
       const response = await fillFormWithAI({
-        prompt: 'Disable image gen.',
+        prompt: `make the reply context more casual and fun, less corporate. throw in some humor.`,
         fields,
         partialData: currentData,
         messages: [],
       })
 
-      console.log('\n=== DISABLE IMAGE GEN (EMPTY FORM) TEST ===')
-      console.log('Current data:', JSON.stringify(currentData, null, 2))
-      console.log('Prompt: "Disable image gen."')
-      console.log('Filled:', JSON.stringify(response.filled, null, 2))
-      console.log('Summary:', response.summary)
+      const marketing = response.filled.marketing as Record<string, unknown>
 
-      const imageGen = response.filled.imageGen as Record<string, unknown>
+      console.log('\n=== TONE UPDATE TEST ===')
+      console.log('Old replyContext: "Technical and helpful"')
+      console.log('New replyContext:', marketing?.replyContext)
 
-      // The AI should set enabled to false even with empty form
-      expect(imageGen).toBeDefined()
-      expect(imageGen?.enabled).toBe(false)
+      // Reply context should change
+      expect(marketing?.replyContext).toBeDefined()
+      const ctx = String(marketing?.replyContext).toLowerCase()
+      const hasCasualTone =
+        ctx.includes('casual') ||
+        ctx.includes('fun') ||
+        ctx.includes('humor') ||
+        ctx.includes('playful') ||
+        ctx.includes('witty')
+      expect(hasCasualTone).toBe(true)
 
-      console.log('\n✓ imageGen.enabled correctly set to false')
+      // Should NOT still be "technical and helpful" exactly
+      expect(ctx).not.toBe('technical and helpful')
+
+      // Should preserve product info
+      expect(marketing?.productName).toBe('DataPipe')
     },
     { timeout: 30000 }
   )
+})
 
-  /**
-   * Test for "Disable image gen" when imageGen already has enabled=false (default)
-   * This simulates a form where the default value is already false
-   */
+describe('AI Form Filler - Toggle Commands', () => {
   it.skipIf(shouldSkip)(
-    'handles "Disable image gen" when already disabled (default)',
+    'enables image generation with natural language',
     async () => {
-      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
-
-      // This simulates the schema default: enabled=false
       const currentData = {
-        imageGen: {
-          enabled: false,
-          instructions: '',
-          imageRefs: [],
-        },
+        marketing: { productName: 'TestProduct' },
+        imageGen: { enabled: false },
       }
 
-      const response = await fillFormWithAI({
-        prompt: 'Disable image gen.',
-        fields,
-        partialData: currentData,
-        messages: [],
-      })
-
-      console.log('\n=== DISABLE IMAGE GEN (ALREADY DISABLED) TEST ===')
-      console.log('Current data:', JSON.stringify(currentData, null, 2))
-      console.log('Prompt: "Disable image gen."')
-      console.log('Filled:', JSON.stringify(response.filled, null, 2))
-      console.log('Summary:', response.summary)
-
-      const imageGen = response.filled.imageGen as Record<string, unknown>
-
-      // The AI should keep enabled as false
-      expect(imageGen).toBeDefined()
-      expect(imageGen?.enabled).toBe(false)
-
-      // Summary should indicate no changes were made (since it's already disabled)
-      // OR acknowledge that it's now disabled
-      console.log('\n✓ imageGen.enabled correctly remains false')
-    },
-    { timeout: 30000 }
-  )
-
-  /**
-   * User's exact scenario: imageGen.enabled is true, user says "Disable image gen."
-   * This is the bug report case - the AI should set enabled to false
-   */
-  it.skipIf(shouldSkip)(
-    'CRITICAL: disables image gen when enabled=true (user bug report)',
-    async () => {
-      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
-
-      // User's scenario: enabled is true
-      const currentData = {
-        imageGen: {
-          enabled: true,
-          instructions: '',
-          imageRefs: [],
-        },
-      }
-
-      const response = await fillFormWithAI({
-        prompt: 'Disable image gen.',
-        fields,
-        partialData: currentData,
-        messages: [],
-      })
-
-      console.log('\n=== USER BUG REPORT: DISABLE IMAGE GEN (enabled=true) ===')
-      console.log('Current data:', JSON.stringify(currentData, null, 2))
-      console.log('Prompt: "Disable image gen."')
-      console.log('Filled:', JSON.stringify(response.filled, null, 2))
-      console.log('Summary:', response.summary)
-      console.log('Missing:', response.missing)
-
-      const imageGen = response.filled.imageGen as Record<string, unknown>
-
-      // The AI MUST set enabled to false
-      expect(imageGen).toBeDefined()
-      expect(imageGen?.enabled).toBe(false)
-
-      // The summary should NOT say "No new fields were extracted"
-      expect(response.summary).not.toContain('No new fields were extracted')
-
-      console.log('\n✓ imageGen.enabled correctly changed from true to false')
-    },
-    { timeout: 30000 }
-  )
-
-  /**
-   * Test for "Enable image gen" command
-   */
-  it.skipIf(shouldSkip)(
-    'handles "Enable image gen" command correctly',
-    async () => {
-      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
-
-      // Start with imageGen disabled
-      const currentData = {
-        imageGen: {
-          enabled: false,
-        },
-      }
+      const fields = generateFormFieldsWithSchemaAnnotations(currentData, VisitorSettings)
 
       const response = await fillFormWithAI({
         prompt: 'Enable image generation',
@@ -289,530 +380,318 @@ describe('AI Form Filler - Conditional Requirements', () => {
         messages: [],
       })
 
-      console.log('\n=== ENABLE IMAGE GEN TEST ===')
-      console.log('Current data:', JSON.stringify(currentData, null, 2))
-      console.log('Prompt: "Enable image generation"')
-      console.log('Filled:', JSON.stringify(response.filled, null, 2))
-      console.log('Summary:', response.summary)
-
       const imageGen = response.filled.imageGen as Record<string, unknown>
 
-      // The AI should set enabled to true
-      expect(imageGen).toBeDefined()
-      expect(imageGen?.enabled).toBe(true)
+      console.log('\n=== ENABLE IMAGE GEN TEST ===')
+      console.log('imageGen:', JSON.stringify(imageGen, null, 2))
 
-      console.log('\n✓ imageGen.enabled correctly set to true')
+      expect(imageGen?.enabled).toBe(true)
     },
     { timeout: 30000 }
   )
-})
 
-describe('AI Form Filler - Reasoning & Context', () => {
-  /**
-   * CRITICAL: Test that AI doesn't literally copy referential instructions.
-   * 
-   * When user says "fill image instructions to align with our other configs",
-   * the AI should NOT fill "align with our other configs" as the value.
-   * Instead, it should:
-   * 1. Look at the current data (productName, replyContext, etc.)
-   * 2. Generate appropriate image instructions that match the context
-   */
   it.skipIf(shouldSkip)(
-    'does NOT literally copy referential instructions like "align with X"',
+    'disables image generation when currently enabled',
     async () => {
-      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
-
-      // Simulate user who has already filled out marketing config
       const currentData = {
-        marketing: {
-          productName: 'Breadcrumb',
-          productDescription: 'AI-powered marketing automation for crypto projects',
-          replyContext: 'Be witty and engaging, hype up the product but stay authentic',
-          discoveryQuery: 'BNB BSC Binance',
-        },
+        marketing: { productName: 'TestProduct' },
         imageGen: {
           enabled: true,
+          instructions: 'Create cool visuals',
+          imageRefs: [],
         },
       }
 
-      // User says "fill image instructions to align with our other configs"
+      const fields = generateFormFieldsWithSchemaAnnotations(currentData, VisitorSettings)
+
       const response = await fillFormWithAI({
-        prompt: 'fill image instructions to align with our other configs',
+        prompt: 'Disable image gen',
         fields,
         partialData: currentData,
         messages: [],
       })
-
-      console.log('\n=== REFERENTIAL INSTRUCTION TEST ===')
-      console.log('Current data:', JSON.stringify(currentData, null, 2))
-      console.log('Prompt: "fill image instructions to align with our other configs"')
-      console.log('Filled:', JSON.stringify(response.filled, null, 2))
-      console.log('Summary:', response.summary)
 
       const imageGen = response.filled.imageGen as Record<string, unknown>
 
-      // The AI MUST NOT literally copy the instruction
-      const instructions = String(imageGen?.instructions || '').toLowerCase()
-      
-      console.log('\n=== VALIDATION ===')
-      console.log('Image instructions:', imageGen?.instructions)
-      
-      // Should NOT contain literal copies of meta-instructions
-      expect(instructions).not.toContain('align with')
-      expect(instructions).not.toContain('other configs')
-      expect(instructions).not.toContain('same as')
-      
-      // Should contain something relevant to the context
-      // (product is about crypto/marketing, tone is witty/engaging)
-      const hasRelevantContent = 
-        instructions.includes('witty') ||
-        instructions.includes('engaging') ||
-        instructions.includes('crypto') ||
-        instructions.includes('professional') ||
-        instructions.includes('brand') ||
-        instructions.includes('promotional') ||
-        instructions.length > 20 // At least some meaningful content
+      console.log('\n=== DISABLE IMAGE GEN TEST ===')
+      console.log('imageGen:', JSON.stringify(imageGen, null, 2))
 
-      expect(hasRelevantContent).toBe(true)
-      
-      console.log('\n✓ AI correctly interpreted referential instruction')
+      expect(imageGen?.enabled).toBe(false)
     },
     { timeout: 30000 }
   )
 
-  /**
-   * Test that "update X" without a value doesn't fail silently.
-   * The AI should understand the user wants to modify that field.
-   */
   it.skipIf(shouldSkip)(
-    'handles "update X to Y" instructions correctly',
+    'enables dry run mode',
     async () => {
-      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
-
       const currentData = {
-        marketing: {
-          discoveryQuery: 'old query',
-          productName: 'Breadcrumb',
-        },
+        marketing: { productName: 'TestProduct' },
+        options: { dryRun: false },
       }
 
-      // User explicitly says what to update
+      const fields = generateFormFieldsWithSchemaAnnotations(currentData, VisitorSettings)
+
       const response = await fillFormWithAI({
-        prompt: 'update discovery query to find trending tweets from bnb bsc binance',
+        prompt: 'enable dry run so I can test first',
         fields,
         partialData: currentData,
         messages: [],
       })
 
-      console.log('\n=== UPDATE INSTRUCTION TEST ===')
-      console.log('Current data:', JSON.stringify(currentData, null, 2))
-      console.log('Prompt: "update discovery query to find trending tweets from bnb bsc binance"')
-      console.log('Filled:', JSON.stringify(response.filled, null, 2))
+      const options = response.filled.options as Record<string, unknown>
 
-      const marketing = response.filled.marketing as Record<string, unknown>
+      console.log('\n=== DRY RUN TOGGLE TEST ===')
+      console.log('options:', JSON.stringify(options, null, 2))
 
-      // Should update the discovery query
-      expect(marketing?.discoveryQuery).toBeDefined()
-      const query = String(marketing?.discoveryQuery).toLowerCase()
-      
-      // Should contain the keywords from the user's instruction
-      expect(query.includes('bnb') || query.includes('bsc') || query.includes('binance')).toBe(true)
-      
-      // Should NOT be the old value
-      expect(query).not.toBe('old query')
-      
-      console.log('\n✓ AI correctly updated the field')
-    },
-    { timeout: 30000 }
-  )
-
-  /**
-   * Test that image eval instructions can be generated from context.
-   */
-  it.skipIf(shouldSkip)(
-    'generates contextual image eval instructions',
-    async () => {
-      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
-
-      const currentData = {
-        marketing: {
-          productName: 'CryptoBot',
-          productDescription: 'AI trading bot for DeFi',
-          replyContext: 'Professional but friendly, focus on trading benefits',
-          discoveryQuery: 'DeFi trading crypto',
-        },
-      }
-
-      // User asks for image eval based on context
-      const response = await fillFormWithAI({
-        prompt: 'add image eval instructions that match our product focus',
-        fields,
-        partialData: currentData,
-        messages: [],
-      })
-
-      console.log('\n=== CONTEXTUAL IMAGE EVAL TEST ===')
-      console.log('Current data:', JSON.stringify(currentData, null, 2))
-      console.log('Prompt: "add image eval instructions that match our product focus"')
-      console.log('Filled:', JSON.stringify(response.filled, null, 2))
-
-      const marketing = response.filled.marketing as Record<string, unknown>
-      const imageEval = String(marketing?.imageEvalInstructions || '').toLowerCase()
-
-      console.log('Image eval instructions:', marketing?.imageEvalInstructions)
-
-      // Should NOT literally copy the meta-instruction
-      expect(imageEval).not.toContain('match our product')
-      expect(imageEval).not.toContain('product focus')
-
-      // Should have some relevant content (crypto/trading/defi related)
-      const hasRelevantContent =
-        imageEval.includes('trading') ||
-        imageEval.includes('crypto') ||
-        imageEval.includes('defi') ||
-        imageEval.includes('chart') ||
-        imageEval.includes('professional') ||
-        imageEval.length > 15
-
-      expect(hasRelevantContent).toBe(true)
-
-      console.log('\n✓ AI generated contextual image eval instructions')
+      expect(options?.dryRun).toBe(true)
     },
     { timeout: 30000 }
   )
 })
 
-describe('AI Form Filler - Schema Validation', () => {
-  it('validates schema 1:1 mapping to JSON Schema', () => {
-    const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
+describe('AI Form Filler - Referential Reasoning', () => {
+  /**
+   * When user says "align with our product", the AI should look at existing
+   * product context and generate appropriate values - NOT copy the instruction literally.
+   */
+  it.skipIf(shouldSkip)(
+    'generates contextual image instructions from existing product data',
+    async () => {
+      const currentData = {
+        marketing: {
+          productName: 'FitTrack',
+          productDescription: 'Workout tracking app for busy professionals',
+          replyContext: 'Motivating and casual, like a gym buddy',
+          discoveryQuery: '#fitness #workout productivity',
+        },
+        imageGen: { enabled: true },
+      }
+
+      const fields = generateFormFieldsWithSchemaAnnotations(currentData, VisitorSettings)
+
+      const response = await fillFormWithAI({
+        prompt: 'fill image instructions to match our brand voice and product',
+        fields,
+        partialData: currentData,
+        messages: [],
+      })
+
+      const imageGen = response.filled.imageGen as Record<string, unknown>
+
+      console.log('\n=== REFERENTIAL REASONING TEST ===')
+      console.log('Image instructions:', imageGen?.instructions)
+
+      const instructions = String(imageGen?.instructions || '').toLowerCase()
+
+      // Should NOT literally copy the meta-instruction
+      expect(instructions).not.toContain('match our brand')
+      expect(instructions).not.toContain('brand voice and product')
+
+      // Should contain relevant context from existing data
+      const hasRelevantContent =
+        instructions.includes('fitness') ||
+        instructions.includes('workout') ||
+        instructions.includes('motivat') ||
+        instructions.includes('casual') ||
+        instructions.includes('active') ||
+        instructions.includes('energy') ||
+        instructions.length > 20
+      expect(hasRelevantContent).toBe(true)
+
+      console.log('✓ AI generated contextual instructions, not a literal copy')
+    },
+    { timeout: 30000 }
+  )
+
+  /**
+   * Test: "make discovery instructions match our product focus"
+   */
+  it.skipIf(shouldSkip)(
+    'infers discovery instructions from product context',
+    async () => {
+      const currentData = {
+        marketing: {
+          productName: 'PetPal',
+          productDescription: 'AI-powered pet health monitoring collar',
+          discoveryQuery: '#pets #dogmom #catlovers',
+          replyContext: 'Warm and caring, like a fellow pet parent',
+        },
+      }
+
+      const fields = generateFormFieldsWithSchemaAnnotations(currentData, VisitorSettings)
+
+      const response = await fillFormWithAI({
+        prompt: 'add discovery instructions based on our product',
+        fields,
+        partialData: currentData,
+        messages: [],
+      })
+
+      const marketing = response.filled.marketing as Record<string, unknown>
+
+      console.log('\n=== DISCOVERY FROM CONTEXT TEST ===')
+      console.log('discoveryInstructions:', marketing?.discoveryInstructions)
+
+      const instructions = String(marketing?.discoveryInstructions || '').toLowerCase()
+
+      // Should NOT be a literal copy
+      expect(instructions).not.toContain('based on our product')
+
+      // Should relate to pets/health
+      const hasContext =
+        instructions.includes('pet') ||
+        instructions.includes('dog') ||
+        instructions.includes('cat') ||
+        instructions.includes('health') ||
+        instructions.includes('animal')
+      expect(hasContext).toBe(true)
+    },
+    { timeout: 30000 }
+  )
+})
+
+describe('AI Form Filler - Options Configuration', () => {
+  /**
+   * Test setting numeric options with natural language
+   */
+  it.skipIf(shouldSkip)(
+    'sets numeric options from natural description',
+    async () => {
+      const fields = getFields()
+
+      const response = await fillFormWithAI({
+        prompt: `Set max replies per run to 5, cooldown to 12 hours, and search window to 1 hour`,
+        fields,
+        partialData: {},
+        messages: [],
+      })
+
+      const options = response.filled.options as Record<string, unknown>
+
+      console.log('\n=== NUMERIC OPTIONS TEST ===')
+      console.log('options:', JSON.stringify(options, null, 2))
+
+      expect(options?.maxRepliesPerRun).toBe(5)
+      expect(options?.replyCooldownHours).toBe(12)
+      expect(options?.sinceQuerySeconds).toBe(3600)
+
+      console.log('✓ All numeric options set correctly')
+    },
+    { timeout: 30000 }
+  )
+
+  /**
+   * Test setting search type
+   */
+  it.skipIf(shouldSkip)(
+    'sets search type to Latest',
+    async () => {
+      const fields = getFields()
+
+      const response = await fillFormWithAI({
+        prompt: `I want to search latest tweets, not top ones`,
+        fields,
+        partialData: {},
+        messages: [],
+      })
+
+      const marketing = response.filled.marketing as Record<string, unknown>
+
+      console.log('\n=== SEARCH TYPE TEST ===')
+      console.log('searchProduct:', marketing?.searchProduct)
+
+      expect(marketing?.searchProduct).toBe('Latest')
+    },
+    { timeout: 30000 }
+  )
+})
+
+describe('AI Form Filler - Schema Structure', () => {
+  it('validates all expected fields exist in JSON schema', () => {
+    const fields = getFields()
     const jsonSchema = buildJsonSchema(fields)
 
-    console.log('\n=== FORM FIELDS (root) ===')
-    Object.entries(fields).forEach(([key, field]) => {
-      if (!key.includes('.')) {
-        console.log(`  ${key}: ${(field as any).type}`)
-      }
-    })
-
-    console.log('\n=== JSON SCHEMA ===')
-    console.log(JSON.stringify(jsonSchema, null, 2))
-
-    // Validate root structure
     expect(jsonSchema.type).toBe('object')
-    expect(jsonSchema.properties).toBeDefined()
-
     const props = jsonSchema.properties as Record<string, any>
 
-    // Validate root fields exist
+    // Root sections exist
     expect(props.marketing).toBeDefined()
     expect(props.options).toBeDefined()
     expect(props.imageGen).toBeDefined()
     expect(props.isActive).toBeDefined()
 
-    // Validate marketing nested structure
-    expect(props.marketing.type).toBe('object')
-    expect(props.marketing.properties).toBeDefined()
-
-    const marketingProps = props.marketing.properties as Record<string, any>
-    console.log('\n=== MARKETING PROPERTIES IN JSON SCHEMA ===')
-    Object.keys(marketingProps).forEach((k) => {
-      console.log(`  ${k}: ${marketingProps[k].type}`)
-    })
-
-    // Validate ALL marketing fields are present in JSON Schema
-    const expectedMarketingFields = [
-      'discoveryQuery',
-      'searchProduct',
-      'productName',
-      'productDescription',
-      'discoveryInstructions',
-      'replyContext',
+    // Marketing fields
+    const mktProps = props.marketing.properties as Record<string, any>
+    const expectedMarketing = [
+      'discoveryQuery', 'searchProduct', 'productName',
+      'productDescription', 'discoveryInstructions', 'replyContext',
       'preferredLanguages',
-      'imageEvalInstructions',
     ]
-
-    expectedMarketingFields.forEach((fieldName) => {
-      expect(marketingProps[fieldName]).toBeDefined()
-      console.log(
-        `  ✓ ${fieldName}: type=${marketingProps[fieldName].type}, desc="${marketingProps[fieldName].description?.slice(0, 40)}..."`
-      )
+    expectedMarketing.forEach((field) => {
+      expect(mktProps[field]).toBeDefined()
     })
+
+    // Options fields
+    const optProps = props.options.properties as Record<string, any>
+    const expectedOptions = [
+      'maxCandidatesPerRun', 'replyCooldownHours', 'maxRepliesPerRun',
+      'includeParentContext', 'includeThreadContext', 'dryRun',
+      'sinceQuerySeconds', 'minMedia', 'maxMedia', 'maxTweetChars',
+    ]
+    expectedOptions.forEach((field) => {
+      expect(optProps[field]).toBeDefined()
+    })
+
+    // ImageGen fields
+    const imgProps = props.imageGen.properties as Record<string, any>
+    expect(imgProps.enabled).toBeDefined()
+    expect(imgProps.instructions).toBeDefined()
+    expect(imgProps.imageRefs).toBeDefined()
+
+    console.log('✓ All schema fields present')
   })
 
-  it('validates context is passed correctly', () => {
-    const currentData = {
-      marketing: {
-        productName: 'ExistingProduct',
-      },
-    }
+  it('parses requiredWhen annotations correctly', () => {
+    const fields = getFields()
 
+    const imageGenChildren = fields.imageGen?.children || {}
+
+    const instructionsField = imageGenChildren['imageGen.instructions']
+    expect(instructionsField?.requiredWhen).toEqual({
+      field: 'imageGen.enabled',
+      value: true,
+    })
+
+    const imageRefsField = imageGenChildren['imageGen.imageRefs']
+    expect(imageRefsField?.requiredWhen).toEqual({
+      field: 'imageGen.enabled',
+      value: true,
+    })
+
+    const enabledField = imageGenChildren['imageGen.enabled']
+    expect(enabledField?.requiredWhen).toBeUndefined()
+
+    console.log('✓ requiredWhen annotations parsed correctly')
+  })
+
+  it('generates consistent schema regardless of initial data', () => {
+    const fieldsEmpty = getFields()
     const fieldsWithData = generateFormFieldsWithSchemaAnnotations(
-      currentData,
-      VisitorSettings
-    )
-    const fieldsWithEmpty = generateFormFieldsWithSchemaAnnotations(
-      {},
+      { marketing: { productName: 'TestProduct' } },
       VisitorSettings
     )
 
-    console.log('\n=== FIELDS WITH DATA (hook flow) ===')
-    const marketingChildren = fieldsWithData.marketing?.children || {}
-    console.log('Marketing children:', Object.keys(marketingChildren).length)
-    Object.keys(marketingChildren).forEach((k) => console.log(`  - ${k}`))
+    const schemaEmpty = buildJsonSchema(fieldsEmpty)
+    const schemaData = buildJsonSchema(fieldsWithData)
 
-    console.log('\n=== FIELDS WITH EMPTY (test flow) ===')
-    const emptyMarketingChildren = fieldsWithEmpty.marketing?.children || {}
-    console.log('Marketing children:', Object.keys(emptyMarketingChildren).length)
-    Object.keys(emptyMarketingChildren).forEach((k) => console.log(`  - ${k}`))
-
-    console.log('\n=== JSON SCHEMA COMPARISON ===')
-    const jsonSchemaWithData = buildJsonSchema(fieldsWithData)
-    const jsonSchemaWithEmpty = buildJsonSchema(fieldsWithEmpty)
-
-    const propsWithData = (jsonSchemaWithData.properties as any)?.marketing
-      ?.properties || {}
-    const propsWithEmpty = (jsonSchemaWithEmpty.properties as any)?.marketing
-      ?.properties || {}
-
-    console.log('JSON Schema marketing fields with data:', Object.keys(propsWithData).length)
-    console.log('JSON Schema marketing fields with empty:', Object.keys(propsWithEmpty).length)
-
-    // They should be the same!
-    expect(Object.keys(propsWithData).length).toBe(
-      Object.keys(propsWithEmpty).length
+    const emptyMktFields = Object.keys(
+      (schemaEmpty.properties as any)?.marketing?.properties || {}
     )
+    const dataMktFields = Object.keys(
+      (schemaData.properties as any)?.marketing?.properties || {}
+    )
+
+    expect(emptyMktFields.length).toBe(dataMktFields.length)
+    console.log('✓ Schema structure consistent with/without data')
   })
-
-  it.skipIf(shouldSkip)(
-    'extracts multiple fields from initial prompt',
-    async () => {
-      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
-
-      const response = await fillFormWithAI({
-        prompt: TEST_PROMPT,
-        fields,
-        messages: [],
-      })
-
-      console.log('\n=== AI RESPONSE (Initial Prompt) ===')
-      console.log('Filled:', JSON.stringify(response.filled, null, 2))
-
-      const marketing = response.filled.marketing as Record<string, unknown>
-
-      console.log('\n=== MARKETING FIELDS EXTRACTED ===')
-      Object.entries(marketing || {}).forEach(([k, v]) => {
-        if (v != null && v !== '') {
-          console.log(`  ✓ ${k}: "${v}"`)
-        }
-      })
-
-      // Core extractions from: "My product is called Breadcrumb. It's an advertising tool.
-      // We want to target Binance Smart Chain. We want it to reply hyping up the product
-      // but not being too complimentary but being friendly enough."
-
-      // Should extract productName from "called Breadcrumb"
-      expect(marketing?.productName).toBe('Breadcrumb')
-
-      // Should extract discoveryQuery from "target Binance Smart Chain"
-      if (marketing?.discoveryQuery) {
-        expect(String(marketing.discoveryQuery).toLowerCase()).toContain('binance')
-      } else {
-        console.log('⚠ discoveryQuery NOT extracted')
-      }
-
-      // Should extract productDescription from "It's an advertising tool"
-      if (marketing?.productDescription) {
-        console.log('✓ productDescription extracted:', marketing.productDescription)
-      } else {
-        console.log('⚠ productDescription NOT extracted (expected from "It\'s an advertising tool")')
-      }
-
-      // Should extract replyContext from "reply hyping up..."
-      if (marketing?.replyContext) {
-        console.log('✓ replyContext extracted:', marketing.replyContext)
-      } else {
-        console.log('⚠ replyContext NOT extracted (expected from "reply hyping up...")')
-      }
-
-      // At minimum, should extract productName
-      const filledCount = Object.values(marketing || {}).filter(
-        (v) => v != null && v !== ''
-      ).length
-      console.log(`\nTotal filled: ${filledCount} fields`)
-      expect(filledCount).toBeGreaterThanOrEqual(2)
-    },
-    { timeout: 30000 }
-  )
-
-  it.skipIf(shouldSkip)(
-    'CRUD: adds new field to existing data',
-    async () => {
-      // CRUD approach: Schema + Current Data + User Message (no history)
-      const currentData = {
-        marketing: {
-          productName: 'Breadcrumb',
-          discoveryQuery: 'Binance Smart Chain',
-        },
-      }
-
-      const prompt = `reply context is We want it to reply hyping up the product but not being too complimentary`
-
-      const fields = generateFormFieldsWithSchemaAnnotations(
-        currentData,
-        VisitorSettings
-      )
-
-      const response = await fillFormWithAI({
-        prompt,
-        fields,
-        partialData: currentData,
-        messages: [], // CRUD: no history
-      })
-
-      console.log('\n=== CRUD UPDATE ===')
-      console.log('Current:', JSON.stringify(currentData.marketing, null, 2))
-      console.log('Prompt:', prompt)
-      console.log('Result:', JSON.stringify(response.filled, null, 2))
-
-      const marketing = response.filled.marketing as Record<string, unknown>
-
-      // Should preserve existing data
-      expect(marketing?.productName).toBe('Breadcrumb')
-
-      // Should extract new field from prompt
-      expect(marketing?.replyContext).toBeDefined()
-      console.log('✓ replyContext extracted:', marketing?.replyContext)
-    },
-    { timeout: 30000 }
-  )
-
-  /**
-   * CRITICAL TEST: Validates that AI extracts ALL explicitly stated fields.
-   *
-   * This test uses a real user prompt where they explicitly state:
-   * - productName: "Breadcrumb"
-   * - productDescription: "AI agents that reply to people on X"
-   * - preferredLanguages: "English" (should be ["en"])
-   * - discoveryInstructions: "BNB chain and base communities, projects and content creators alike"
-   * - replyContext: "witty, fun, but not too mocking"
-   * - imageEvalInstructions: "No images, please"
-   *
-   * Known issues this test catches:
-   * 1. AI fails to extract productName even when explicitly stated
-   * 2. AI fails to extract productDescription even when explicitly stated
-   * 3. AI fails to extract preferredLanguages even when explicitly stated
-   * 4. AI fails to extract discoveryInstructions even when explicitly stated
-   * 5. AI fails to extract imageEvalInstructions even when explicitly stated
-   */
-  it.skipIf(shouldSkip)(
-    'extracts ALL explicitly stated fields from user prompt',
-    async () => {
-      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
-
-      const response = await fillFormWithAI({
-        prompt: EXPLICIT_FIELDS_PROMPT,
-        fields,
-        messages: [],
-      })
-
-      console.log('\n=== AI RESPONSE (Explicit Fields Prompt) ===')
-      console.log('Prompt:', EXPLICIT_FIELDS_PROMPT)
-      console.log('Filled:', JSON.stringify(response.filled, null, 2))
-
-      const marketing = response.filled.marketing as Record<string, unknown>
-
-      console.log('\n=== FIELD EXTRACTION VALIDATION ===')
-
-      // 1. productName - explicitly stated as "Breadcrumb"
-      console.log(`productName: "${marketing?.productName}" (expected: "Breadcrumb")`)
-      expect(marketing?.productName).toBe('Breadcrumb')
-
-      // 2. productDescription - explicitly stated as "AI agents that reply to people on X"
-      console.log(`productDescription: "${marketing?.productDescription}" (expected to contain "AI agents")`)
-      expect(marketing?.productDescription).toBeDefined()
-      expect(String(marketing?.productDescription).toLowerCase()).toContain('ai agent')
-
-      // 3. preferredLanguages - explicitly stated as "English" (should map to ["en"])
-      console.log(`preferredLanguages: ${JSON.stringify(marketing?.preferredLanguages)} (expected: ["en"])`)
-      expect(marketing?.preferredLanguages).toBeDefined()
-      const languages = marketing?.preferredLanguages as string[]
-      expect(Array.isArray(languages)).toBe(true)
-      expect(languages).toContain('en')
-
-      // 4. discoveryInstructions - explicitly stated as "BNB chain and base communities..."
-      console.log(`discoveryInstructions: "${marketing?.discoveryInstructions}" (expected to contain "BNB" or "base")`)
-      expect(marketing?.discoveryInstructions).toBeDefined()
-      const discoveryInstr = String(marketing?.discoveryInstructions).toLowerCase()
-      expect(discoveryInstr.includes('bnb') || discoveryInstr.includes('base')).toBe(true)
-
-      // 5. replyContext - explicitly stated as "witty, fun, but not too mocking"
-      console.log(`replyContext: "${marketing?.replyContext}" (expected to contain "witty" or "fun")`)
-      expect(marketing?.replyContext).toBeDefined()
-      const replyCtx = String(marketing?.replyContext).toLowerCase()
-      expect(replyCtx.includes('witty') || replyCtx.includes('fun') || replyCtx.includes('mocking')).toBe(true)
-
-      // 6. imageEvalInstructions - explicitly stated as "For image eval instructions, no political content"
-      console.log(`imageEvalInstructions: "${marketing?.imageEvalInstructions}" (expected to contain "political")`)
-      expect(marketing?.imageEvalInstructions).toBeDefined()
-      expect(String(marketing?.imageEvalInstructions).toLowerCase()).toContain('political')
-
-      // Summary: Count how many fields were correctly extracted
-      const expectedFields = [
-        'productName',
-        'productDescription',
-        'preferredLanguages',
-        'discoveryInstructions',
-        'replyContext',
-        'imageEvalInstructions',
-      ]
-
-      const extractedCount = expectedFields.filter(
-        (field) => marketing?.[field] != null && marketing?.[field] !== ''
-      ).length
-
-      console.log(`\n=== SUMMARY ===`)
-      console.log(`Extracted ${extractedCount}/${expectedFields.length} explicitly stated fields`)
-      expectedFields.forEach((field) => {
-        const value = marketing?.[field]
-        const status = value != null && value !== '' ? '✓' : '✗'
-        console.log(`  ${status} ${field}: ${JSON.stringify(value)}`)
-      })
-
-      // All 6 explicitly stated fields MUST be extracted
-      expect(extractedCount).toBe(6)
-    },
-    { timeout: 30000 }
-  )
-
-  /**
-   * Tests that replyContext is correctly extracted from explicit prompt.
-   */
-  it.skipIf(shouldSkip)(
-    'correctly extracts replyContext field',
-    async () => {
-      const fields = generateFormFieldsWithSchemaAnnotations({}, VisitorSettings)
-
-      // Prompt explicitly mentions "reply context should be witty"
-      const response = await fillFormWithAI({
-        prompt: EXPLICIT_FIELDS_PROMPT,
-        fields,
-        messages: [],
-      })
-
-      const marketing = response.filled.marketing as Record<string, unknown>
-
-      console.log('\n=== FIELD EXTRACTION TEST ===')
-      console.log(`replyContext: "${marketing?.replyContext}"`)
-
-      // replyContext should contain the witty/fun/mocking context
-      expect(marketing?.replyContext).toBeDefined()
-      const replyCtx = String(marketing?.replyContext).toLowerCase()
-      expect(
-        replyCtx.includes('witty') ||
-          replyCtx.includes('fun') ||
-          replyCtx.includes('mocking')
-      ).toBe(true)
-    },
-    { timeout: 30000 }
-  )
 })

@@ -119,11 +119,24 @@ export function buildSchemaDescription(
  * to keep prompts generic across any schema.
  */
 export function buildSystemPrompt(): string {
-  return `You are a form-filling assistant. Extract information from natural language into JSON.
+  return `You are a form-filling assistant for a social media marketing automation tool. Extract information from natural language into JSON.
+
+CORE CAPABILITY - INFER FROM CONTEXT:
+When a user describes their product, audience, or goals, you should intelligently populate MULTIPLE related fields:
+- Product description → also infer relevant discovery queries (hashtags, keywords their audience uses)
+- Target audience → infer discovery instructions (what posts to find, what to avoid)
+- Tone/personality → infer reply context (how to sound in replies)
+- Industry/niche → infer appropriate search terms and engagement style
+
+Example: "I run a project management tool for remote teams" should populate:
+- Product name and description (from what they said)
+- Discovery query (e.g., "remote work productivity" OR "#remotework project management")
+- Discovery instructions (e.g., "Target remote workers discussing productivity challenges, team collaboration pain points. Avoid job postings and spam.")
+- Reply context (infer professional but approachable tone appropriate for B2B SaaS)
 
 SEMANTIC PATTERN MATCHING (X → field, Y → value):
 - "X is Y" or "X: Y" → set field X to value Y
-- "the X is Y" or "my X is Y" → set field X to value Y  
+- "the X is Y" or "my X is Y" → set field X to value Y
 - "X name is Y" or "called Y" → set the name-related field to Y
 - "X description is Y" or "it's a Y" → set the description-related field to Y
 - "for X, do Y" or "X should Y" → set field X to instruction Y
@@ -139,8 +152,9 @@ TYPE CONVERSIONS:
 EXTRACTION RULES:
 1. Match user phrases to schema field names/labels (case-insensitive, ignore spaces)
 2. Extract EVERY field the user mentions - do not skip any
-3. Never invent values for fields not mentioned
+3. For fields not explicitly mentioned but clearly inferable from context, generate appropriate values
 4. Preserve existing data unless explicitly changed
+5. When inferring values, keep them practical and specific to the user's niche - avoid generic filler
 
 REFERENTIAL REASONING (meta-instructions are NOT values):
 - "align with X" or "match X" or "same as X" → examine X in CURRENT DATA, generate content that matches its style/tone/context
@@ -151,7 +165,9 @@ REFERENTIAL REASONING (meta-instructions are NOT values):
 INTENT OVER LITERAL:
 - Understand what user MEANS, not just literal words
 - "make it friendly" → generate friendly-toned content for the relevant field
-- "keep it short" → generate concise content`
+- "keep it short" → generate concise content
+- "I want to reach developers" → set discovery to dev-related terms, instructions to target dev discussions
+- "be funny but professional" → set reply context to reflect that balance`
 }
 
 /**
@@ -200,7 +216,7 @@ export function buildUnifiedPrompt(params: {
 
   const rulesSection = buildRulesSection(rules || [])
 
-  const prompt = `Extract form data from user input using semantic pattern matching.
+  const prompt = `Extract form data from user input using semantic pattern matching and contextual inference.
 
 SCHEMA (available fields - match user input to these):
 ${schemaDescription}
@@ -210,6 +226,14 @@ ${JSON.stringify(currentData, null, 2)}
 
 USER INPUT:
 "${userPrompt}"
+
+CONTEXTUAL INFERENCE (IMPORTANT):
+When the user describes their product, audience, or goals, infer values for related fields:
+- Product/service description → also generate relevant search keywords for discovery
+- Target audience mentioned → generate discovery instructions about what posts to find
+- Tone/personality described → generate reply context matching that voice
+- Only infer fields that are currently empty or have default/placeholder values
+- Inferred values should be specific to the user's niche, not generic
 
 SEMANTIC EXTRACTION (X = field reference, Y = value):
 Match user phrases to schema fields using these patterns:
@@ -233,9 +257,9 @@ When user says "align with X", "match X", "same as X", "based on other fields":
 4. If no relevant context exists, leave field unchanged
 
 EXTRACTION RULES:
-- Match ALL fields user mentions
-- Do NOT invent values for unmentioned fields
-- Preserve existing data unless explicitly updated
+- Match ALL fields user explicitly mentions
+- For fields clearly inferable from context (product → search terms, audience → instructions), generate specific values
+- Preserve existing non-default data unless explicitly updated
 ${rules && rules.length > 0 ? '- Follow FIELD-SPECIFIC RULES for those fields' : ''}
 
 Return merged JSON: CURRENT DATA + extracted/generated values.`
