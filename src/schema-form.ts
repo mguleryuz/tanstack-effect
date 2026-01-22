@@ -1616,6 +1616,51 @@ function getSchemaFieldType(
   }
 }
 
+/**
+ * Recursively compares two data objects and returns the number of leaf fields that differ.
+ */
+export function countDifferentFields(original: any, current: any): number {
+  if (original === current) return 0
+  if (original == null && current == null) return 0
+  if (original == null || current == null) {
+    // Count leaves in the non-null side
+    return countLeaves(original ?? current)
+  }
+  if (typeof original !== 'object' || typeof current !== 'object') {
+    return original !== current ? 1 : 0
+  }
+  if (Array.isArray(original) || Array.isArray(current)) {
+    if (!Array.isArray(original) || !Array.isArray(current)) {
+      return Math.max(countLeaves(original), countLeaves(current))
+    }
+    // Compare arrays element by element
+    const maxLen = Math.max(original.length, current.length)
+    let count = 0
+    for (let i = 0; i < maxLen; i++) {
+      count += countDifferentFields(original[i], current[i])
+    }
+    return count || (original.length !== current.length ? 1 : 0)
+  }
+  const allKeys = new Set([...Object.keys(original), ...Object.keys(current)])
+  let count = 0
+  for (const key of allKeys) {
+    count += countDifferentFields(original[key], current[key])
+  }
+  return count
+}
+
+function countLeaves(val: any): number {
+  if (val == null) return 1
+  if (typeof val !== 'object') return 1
+  if (Array.isArray(val)) {
+    if (val.length === 0) return 1
+    return val.reduce((sum, item) => sum + countLeaves(item), 0)
+  }
+  const keys = Object.keys(val)
+  if (keys.length === 0) return 1
+  return keys.reduce((sum, key) => sum + countLeaves(val[key]), 0)
+}
+
 // Merge schema-generated fields into data-generated fields
 function mergeSchemaFields(
   dataFields: Record<string, FormFieldDefinition>,

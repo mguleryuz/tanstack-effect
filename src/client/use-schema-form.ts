@@ -12,6 +12,7 @@ import type {
 import { stringToNumber, toAmountString } from '../format'
 import type { FormFieldDefinition } from '../schema-form'
 import {
+  countDifferentFields,
   generateFormFieldsWithSchemaAnnotations,
   getNestedValue,
   setNestedValue,
@@ -139,6 +140,18 @@ export interface UseSchemaFormReturn<T> {
    * @description AI-related state and actions. Only present when `ai` config is provided.
    */
   ai?: SchemaFormAI
+  /** Undo the last change */
+  undo: () => void
+  /** Redo the last undone change */
+  redo: () => void
+  /** Whether undo is available */
+  canUndo: boolean
+  /** Whether redo is available */
+  canRedo: boolean
+  /** Number of fields different from initial state */
+  changeCount: number
+  /** Clears history stacks and updates the initial snapshot (call after save) */
+  resetHistory: () => void
 }
 
 // Types used by the example FormBuilder UI
@@ -186,11 +199,104 @@ export function useSchemaForm<
   >({})
   const [hasChanges, setHasChanges] = React.useState(false)
 
+  // --- History state for undo/redo ---
+  const MAX_HISTORY = 50
+  const MERGE_WINDOW_MS = 800
+  const [past, setPast] = React.useState<T[]>([])
+  const [future, setFuture] = React.useState<T[]>([])
+  const initialDataRef = React.useRef<T | null>(
+    initialData != null ? structuredClone(initialData) : null
+  )
+  const lastUpdateRef = React.useRef<{
+    path: string
+    timestamp: number
+  } | null>(null)
+  // Always-current data ref so undo/redo never use stale closures
+  const dataRef = React.useRef<T | null>(data)
+  dataRef.current = data
+
+  const pushHistory = React.useCallback(
+    (snapshot: T, path: string, force = false) => {
+      const now = Date.now()
+      const last = lastUpdateRef.current
+
+      // Merge logic: skip push if same path within MERGE_WINDOW_MS
+      if (
+        !force &&
+        last &&
+        last.path === path &&
+        now - last.timestamp < MERGE_WINDOW_MS
+      ) {
+        lastUpdateRef.current = { path, timestamp: now }
+        return
+      }
+
+      lastUpdateRef.current = { path, timestamp: now }
+      const cloned = structuredClone(snapshot)
+      setPast((prev) => {
+        const next = [...prev, cloned]
+        return next.length > MAX_HISTORY
+          ? next.slice(next.length - MAX_HISTORY)
+          : next
+      })
+      setFuture([])
+    },
+    []
+  )
+
+  const undo = React.useCallback(() => {
+    setPast((prevPast) => {
+      if (prevPast.length === 0) return prevPast
+      const previous = prevPast[prevPast.length - 1]
+      const newPast = prevPast.slice(0, -1)
+      const current = dataRef.current
+      if (current != null) {
+        setFuture((prevFuture) => [
+          ...prevFuture,
+          structuredClone(current as T),
+        ])
+      }
+      setDataState(previous)
+      return newPast
+    })
+  }, [])
+
+  const redo = React.useCallback(() => {
+    setFuture((prevFuture) => {
+      if (prevFuture.length === 0) return prevFuture
+      const next = prevFuture[prevFuture.length - 1]
+      const newFuture = prevFuture.slice(0, -1)
+      const current = dataRef.current
+      if (current != null) {
+        setPast((prevPast) => [...prevPast, structuredClone(current as T)])
+      }
+      setDataState(next)
+      return newFuture
+    })
+  }, [])
+
+  const canUndo = past.length > 0
+  const canRedo = future.length > 0
+
+  const changeCount = React.useMemo(
+    () => countDifferentFields(initialDataRef.current, data),
+    [data]
+  )
+
+  const resetHistory = React.useCallback(() => {
+    setPast([])
+    setFuture([])
+    initialDataRef.current =
+      dataRef.current != null ? structuredClone(dataRef.current) : null
+    lastUpdateRef.current = null
+  }, [])
+
   // Sync form state when initialData changes (e.g., when async query completes)
   // Only sync if user hasn't made changes yet to avoid overwriting their edits
   React.useEffect(() => {
     if (!hasChanges && initialData !== null && initialData !== undefined) {
       setDataState(initialData)
+      initialDataRef.current = structuredClone(initialData)
     }
   }, [initialData, hasChanges])
 
@@ -198,15 +304,32 @@ export function useSchemaForm<
     return generateFormFieldsWithSchemaAnnotations(data ?? {}, schema)
   }, [data, schema])
 
-  // Handle AI data changes - update form in real-time
-  const handleAIDataChange = React.useCallback(
+  // Track pre-AI-fill state so the entire AI fill is a single undoable action
+  const aiPreFillRef = React.useRef<T | null>(null)
+
+  // Called on each streaming update — save snapshot once at the start, then just update data
+  const handleAIDataChange = React.useCallback((filledData: Partial<T>) => {
+    if (!filledData) return
+    // On first streaming update, capture pre-fill state
+    if (aiPreFillRef.current === null && dataRef.current) {
+      aiPreFillRef.current = structuredClone(dataRef.current) as T
+    }
+    setDataState(filledData as T)
+    setHasChanges(true)
+  }, [])
+
+  // Called when AI fill completes — push the pre-fill snapshot as a single history entry
+  const handleAIComplete = React.useCallback(
     (filledData: Partial<T>) => {
-      if (filledData) {
-        setDataState(filledData as T)
-        setHasChanges(true)
+      if (!filledData) return
+      if (aiPreFillRef.current) {
+        pushHistory(aiPreFillRef.current, '__ai_fill__', true)
+        aiPreFillRef.current = null
       }
+      setDataState(filledData as T)
+      setHasChanges(true)
     },
-    [setDataState, setHasChanges]
+    [pushHistory]
   )
 
   // Conditionally use AI form filler when config is provided
@@ -214,8 +337,8 @@ export function useSchemaForm<
     aiConfig,
     schema,
     data,
-    handleAIDataChange, // onComplete
-    handleAIDataChange // onDataChange - same handler for real-time sync
+    handleAIComplete, // onComplete — pushes single history entry
+    handleAIDataChange // onDataChange — streams without history
   )
 
   /**
@@ -344,6 +467,9 @@ export function useSchemaForm<
     (path: string, value: any) => {
       if (!data) return
 
+      // Push history before mutation
+      pushHistory(data as T, path)
+
       // Get the current value at the path for type coercion
       const originalValue = getNestedValue(data, path)
       let coercedValue = value
@@ -386,7 +512,7 @@ export function useSchemaForm<
       // Validate the updated data
       validateData(newData)
     },
-    [data, validateData]
+    [data, validateData, pushHistory]
   )
 
   const resetValidation = React.useCallback(() => {
@@ -433,5 +559,11 @@ export function useSchemaForm<
     updateFromJson,
     fields,
     ai: aiFillerResult,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    changeCount,
+    resetHistory,
   }
 }
