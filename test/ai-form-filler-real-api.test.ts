@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'bun:test'
 import { generateFormFieldsWithSchemaAnnotations } from '../src/schema-form'
 import { fillFormWithAI, buildJsonSchema } from '../src/ai/server'
-import { VisitorSettings } from '../../../lib/schemas'
+import { VisitorSettings } from 'x-marketer/schemas'
 
 const shouldSkip = !process.env.GOOGLE_GENERATIVE_AI_API_KEY
 
