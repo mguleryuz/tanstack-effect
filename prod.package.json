@@ -9,6 +9,11 @@
       "require": "./dist/cjs/client/index.js",
       "import": "./dist/esm/client/index.js",
       "types": "./dist/types/client/index.d.ts"
+    },
+    "./ai": {
+      "require": "./dist/cjs/ai/index.js",
+      "import": "./dist/esm/ai/index.js",
+      "types": "./dist/types/ai/index.d.ts"
     }
   }
 }

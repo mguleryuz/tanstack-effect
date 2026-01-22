@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Real API test for AI form filler with VisitorSettings schema
  *

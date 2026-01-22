@@ -43,7 +43,6 @@ export function getTanstackEffectClient<
   return TanstackEffectClient
 }
 
-export * from './ai'
 export * from './client'
 export * from './error'
 export * from './runner'
