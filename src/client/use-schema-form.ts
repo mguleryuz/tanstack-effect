@@ -291,13 +291,31 @@ export function useSchemaForm<
     lastUpdateRef.current = null
   }, [])
 
+  // Track if initial sync has happened to avoid infinite loops with inline initialData objects
+  const hasInitializedRef = React.useRef(false)
+  const prevInitialDataJsonRef = React.useRef<string | null>(null)
+
   // Sync form state when initialData changes (e.g., when async query completes)
   // Only sync if user hasn't made changes yet to avoid overwriting their edits
+  // Use JSON comparison to avoid infinite loops with inline objects
   React.useEffect(() => {
-    if (!hasChanges && initialData !== null && initialData !== undefined) {
-      setDataState(initialData)
-      initialDataRef.current = structuredClone(initialData)
+    if (hasChanges) return
+    if (initialData === null || initialData === undefined) return
+
+    const initialDataJson = JSON.stringify(initialData)
+
+    // Skip if this is the same data we've already synced
+    if (
+      hasInitializedRef.current &&
+      prevInitialDataJsonRef.current === initialDataJson
+    ) {
+      return
     }
+
+    hasInitializedRef.current = true
+    prevInitialDataJsonRef.current = initialDataJson
+    setDataState(initialData)
+    initialDataRef.current = structuredClone(initialData)
   }, [initialData, hasChanges])
 
   const fields = React.useMemo(() => {
@@ -418,9 +436,14 @@ export function useSchemaForm<
     []
   )
 
+  // Store onValidationChange in a ref to avoid dependency issues
+  const onValidationChangeRef = React.useRef(onValidationChange)
+  onValidationChangeRef.current = onValidationChange
+
   const validateData = React.useCallback(
     (dataToValidate?: T): boolean => {
-      const targetData = dataToValidate || data
+      // Use dataRef.current instead of data state to avoid dependency on data
+      const targetData = dataToValidate ?? dataRef.current
       if (!targetData) {
         setValidationErrors({})
         return true
@@ -432,7 +455,7 @@ export function useSchemaForm<
           targetData
         )
         setValidationErrors({})
-        onValidationChange?.({})
+        onValidationChangeRef.current?.({})
         return true
       } catch (error: any) {
         const errors: Record<string, string> = {}
@@ -456,22 +479,27 @@ export function useSchemaForm<
           errors['_root'] = humanMessage
         }
         setValidationErrors(errors)
-        onValidationChange?.(errors)
+        onValidationChangeRef.current?.(errors)
         return false
       }
     },
-    [data, schema, onValidationChange, parseEffectSchemaError]
+    [schema, parseEffectSchemaError]
   )
+
+  // Store validateData in a ref so callbacks and effects don't depend on it
+  const validateDataRef = React.useRef(validateData)
+  validateDataRef.current = validateData
 
   const updateField = React.useCallback(
     (path: string, value: any) => {
-      if (!data) return
+      const currentData = dataRef.current
+      if (!currentData) return
 
       // Push history before mutation
-      pushHistory(data as T, path)
+      pushHistory(currentData as T, path)
 
       // Get the current value at the path for type coercion
-      const originalValue = getNestedValue(data, path)
+      const originalValue = getNestedValue(currentData, path)
       let coercedValue = value
 
       // Allow undefined/null to clear fields (validation will catch required field violations)
@@ -505,42 +533,39 @@ export function useSchemaForm<
         }
       }
 
-      const newData = setNestedValue(data, path, coercedValue)
+      const newData = setNestedValue(currentData, path, coercedValue)
       setData(newData)
       setHasChanges(true)
 
-      // Validate the updated data
-      validateData(newData)
+      // Validate the updated data using ref to avoid dependency
+      validateDataRef.current(newData)
     },
-    [data, validateData, pushHistory]
+    [pushHistory]
   )
 
   const resetValidation = React.useCallback(() => {
     setValidationErrors({})
-    onValidationChange?.({})
-  }, [onValidationChange])
+    onValidationChangeRef.current?.({})
+  }, [])
 
   // Validate on mount and when data changes
   React.useEffect(() => {
     if (data) {
-      validateData(data)
+      validateDataRef.current(data)
     }
-  }, [data, validateData])
+  }, [data])
 
-  const updateFromJson = React.useCallback(
-    (jsonString: string): boolean => {
-      try {
-        const newData = JSON.parse(jsonString)
-        setData(newData)
-        setHasChanges(true)
-        return validateData(newData)
-      } catch {
-        // Invalid JSON, return false but don't update anything
-        return false
-      }
-    },
-    [validateData]
-  )
+  const updateFromJson = React.useCallback((jsonString: string): boolean => {
+    try {
+      const newData = JSON.parse(jsonString)
+      setData(newData)
+      setHasChanges(true)
+      return validateDataRef.current(newData)
+    } catch {
+      // Invalid JSON, return false but don't update anything
+      return false
+    }
+  }, [])
 
   // Wrapper for setData to keep AI and form in sync
   const setData = React.useCallback((newData: T | null) => {
