@@ -155,7 +155,7 @@ export interface UseSchemaFormReturn<T> {
 }
 
 // Types used by the example FormBuilder UI
-export interface FormBuilderProps<T = any> {
+export interface FormBuilderProps<T = unknown> {
   form: UseSchemaFormReturn<T>
   className?: string
   title?: string
@@ -175,7 +175,7 @@ export interface FormFieldProps {
   formData?: any
 }
 
-export interface NestedFormProps<T = any> {
+export interface NestedFormProps<T = unknown> {
   field: FormFieldDefinition
   form: UseSchemaFormReturn<T>
   basePath: string

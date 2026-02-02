@@ -51,7 +51,6 @@ import {
   useSchemaForm,
 } from 'tanstack-effect/client'
 
-import { FormBuilder } from './form-builder'
 import { UserSchema } from './shared'
 
 export default function Page() {
@@ -80,28 +79,23 @@ export default function Page() {
     },
   })
 
+  const handleSubmit = () => {
+    if (!form.data || !user.data?.username) return
+    updateUser.mutate({
+      path: {
+        username: user.data.username,
+      },
+      payload: form.data,
+    })
+  }
+
   return (
     <div className="space-y-4">
       <h1>User: {user.data?.username}</h1>
       <h1>Update User</h1>
-      <FormBuilder
-        form={{
-          ...form,
-          // We can extend the form object to add custom logic
-          setData: (data) => {
-            // We can call the original setData method to update the form data
-            form.setData(data)
-            // We can also call the updateUser mutation to update the user
-            if (!data || !user.data?.username) return
-            updateUser.mutate({
-              path: {
-                username: user.data.username,
-              },
-              payload: data,
-            })
-          },
-        }}
-      />
+      {/* Use form.fields, form.data, form.updateField, form.validationErrors
+          to build your own form UI. See https://www.npmjs.com/package/liquidcn for a FormBuilder example. */}
+      <button onClick={handleSubmit}>Update</button>
     </div>
   )
 }
@@ -122,16 +116,9 @@ Import them from `tanstack-effect/client`. The main entry `tanstack-effect` is s
 Build forms directly from your Effect `Schema`:
 
 - `useSchemaForm` hook manages form state, validation, and field updates
-- `example/form-builder.tsx` is a reference UI that you can copy
+- For a complete `FormBuilder` UI implementation, see [liquidcn](https://www.npmjs.com/package/liquidcn)
 
-Using the example `FormBuilder` UI:
-
-- Copy `example/form-builder.tsx` into your app (e.g. `src/components/form-builder.tsx`).
-- Replace the placeholder UI elements (`Input`, `Textarea`, `Switch`, `Card`, `Badge`, etc.) with your preferred UI library.
-- We use `shadcn/ui` in our app, but any UI kit works. The builder expects standard `value`, `onChange`, and basic layout components.
-- Supports nested objects, labels, descriptions, simple validation error display, and optional collapsing.
-
-This lets you infer form fields directly from your schema without maintaining separate field configs.
+The hook provides `form.fields`, `form.data`, `form.updateField`, and `form.validationErrors` for building your own form UI.
 
 ### AI-Powered Form Filling (Optional)
 
