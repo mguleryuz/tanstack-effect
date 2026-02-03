@@ -341,7 +341,18 @@ function extractTitleFromAst(ast: any): string | undefined {
     for (const symbol of Object.getOwnPropertySymbols(annotations)) {
       if (symbol.description === 'effect/annotation/Title') {
         const title = annotations[symbol]
-        if (title) return title
+        // Filter out generic type titles from Effect Schema base types
+        if (
+          title &&
+          title !== 'string' &&
+          title !== 'number' &&
+          title !== 'boolean' &&
+          title !== 'a string' &&
+          title !== 'a number' &&
+          title !== 'a boolean'
+        ) {
+          return title
+        }
       }
     }
     return undefined
