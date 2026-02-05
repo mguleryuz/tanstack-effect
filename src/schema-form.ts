@@ -333,6 +333,37 @@ function extractDescriptionFromAst(ast: any): string | undefined {
   return undefined
 }
 
+// Known Effect Schema internal type identifiers that should not be used as labels
+const INTERNAL_TYPE_TITLES = new Set([
+  'string',
+  'number',
+  'boolean',
+  'a string',
+  'a number',
+  'a boolean',
+  'nonEmptyString',
+  'NonEmptyString',
+  'trimmed',
+  'Trimmed',
+  'lowercased',
+  'Lowercased',
+  'uppercased',
+  'Uppercased',
+  'int',
+  'Int',
+  'positive',
+  'Positive',
+  'negative',
+  'Negative',
+  'nonNegative',
+  'NonNegative',
+  'nonPositive',
+  'NonPositive',
+  'finite',
+  'Finite',
+  'JsonNumber',
+])
+
 function extractTitleFromAst(ast: any): string | undefined {
   if (!ast) return undefined
 
@@ -341,16 +372,8 @@ function extractTitleFromAst(ast: any): string | undefined {
     for (const symbol of Object.getOwnPropertySymbols(annotations)) {
       if (symbol.description === 'effect/annotation/Title') {
         const title = annotations[symbol]
-        // Filter out generic type titles from Effect Schema base types
-        if (
-          title &&
-          title !== 'string' &&
-          title !== 'number' &&
-          title !== 'boolean' &&
-          title !== 'a string' &&
-          title !== 'a number' &&
-          title !== 'a boolean'
-        ) {
+        // Filter out generic type titles from Effect Schema base types and refinements
+        if (title && !INTERNAL_TYPE_TITLES.has(title)) {
           return title
         }
       }
